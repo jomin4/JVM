@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HotSpot 인터프리터 — new 바이트코드 한 줄씩 실행</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000; --panel:#0b0b0b; --line:#262626; --node:#1b1b1b; --border:#4c4c4c;
+  --text:#ffffff; --sub:#9a9a9a; --faint:#5e5e5e;
+  --purple:#886dcf; --purple-fill:#20163a; --purple-text:#c5b9eb;
+  --amber:#d9a441; --amber-fill:#2a1f0e; --amber-text:#f0cf8a;
+  --acc:var(--amber); --acc-fill:var(--amber-fill); --acc-text:var(--amber-text);
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+body.ph2{ --acc:var(--purple); --acc-fill:var(--purple-fill); --acc-text:var(--purple-text); }
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-serif}
+body{
+  background-image:linear-gradient(#111 1px,transparent 1px),linear-gradient(90deg,#111 1px,transparent 1px);
+  background-size:48px 48px;
+}
+.wrap{max-width:1680px;margin:0 auto;padding:18px 20px 24px}
+
+/* ---------- top bar ---------- */
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.ttl{font-size:17px;font-weight:700;white-space:nowrap}
+.ttl span{color:var(--sub);font-weight:400;margin-left:6px;font-size:14px}
+.spacer{flex:1}
+.phase{font-size:13px;padding:5px 12px;border-radius:999px;border:1.5px solid var(--acc);background:var(--acc-fill);color:var(--acc-text);font-weight:700;white-space:nowrap}
+.role{font-size:15px;font-weight:700;white-space:nowrap}
+.conds{display:flex;gap:6px;flex-wrap:wrap}
+.cond{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--node);white-space:nowrap}
+.cond.ok{color:#9be29b;border-color:#3d6b3d}
+.cond.no{color:#f19a9a;border-color:#7a3a3a}
+.verdict{font-size:12px;color:var(--acc-text);white-space:nowrap}
+.ctrl{display:flex;align-items:center;gap:8px}
+.ctrl button{font:inherit;font-size:14px;color:#fff;background:var(--node);border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer}
+.ctrl button:hover{border-color:#8a8a8a}
+.ctrl button:disabled{opacity:.3;cursor:default}
+.count{font-family:var(--mono);font-size:13px;color:var(--sub);min-width:62px;text-align:center}
+
+/* ---------- layout ---------- */
+.main{display:grid;grid-template-columns:minmax(560px,46fr) 54fr;gap:16px;align-items:start}
+@media (max-width:0px){ .main{grid-template-columns:1fr} }
+
+/* ---------- mac editor ---------- */
+.mac{background:#1e1e1e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.macbar{height:36px;background:#2b2b2b;display:flex;align-items:center;position:relative}
+.dots{display:flex;gap:8px;padding-left:14px}
+.dots i{width:12px;height:12px;border-radius:50%;display:block}
+.macbar .name{position:absolute;left:0;right:0;text-align:center;font-size:13px;color:#bdbdbd;pointer-events:none}
+.code{position:relative;padding:12px 0 14px;font-family:var(--mono);font-size:13px;line-height:22px;overflow-x:auto}
+.ln{display:flex;position:relative;z-index:1;white-space:pre}
+.ln .no{width:44px;flex:none;text-align:right;padding-right:14px;color:#5a5a5a}
+.ln .tx{color:#d4d4d4;padding-right:18px}
+.ln.cur{background:rgba(255,255,255,.07)}
+.ln.cur::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc)}
+.ln.cur .no{color:#fff}
+.box{position:absolute;left:52px;right:10px;border-radius:7px;z-index:0}
+.box.fast{border:1.5px solid var(--purple);background:rgba(136,109,207,.10)}
+.box.slow{border:1.5px solid var(--amber);background:rgba(217,164,65,.09)}
+.box .tag{position:absolute;right:8px;top:-11px;font-family:'Noto Sans KR',sans-serif;font-size:11px;font-weight:700;padding:1px 8px;border-radius:5px;line-height:18px}
+.box.fast .tag{background:var(--purple);color:#fff}
+.box.slow .tag{background:var(--amber);color:#1a1200;top:auto;bottom:-11px}
+.t-kw{color:#569cd6}.t-ty{color:#4ec9b0}.t-fn{color:#dcdcaa}.t-mc{color:#4fc1ff}.t-cs{color:#9cdcfe}.t-nu{color:#b5cea8}.t-st{color:#ce9178}
+
+.left{display:flex;flex-direction:column;gap:12px}
+.macbar.tabs{justify-content:flex-start;gap:0}
+.tabrow{display:flex;align-items:flex-end;height:100%;margin-left:18px;gap:2px}
+.tab{font:inherit;font-size:13px;color:#9a9a9a;background:transparent;border:none;border-radius:8px 8px 0 0;height:30px;padding:0 14px;display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px}
+.tab:hover{color:#d4d4d4}
+.tab.active{background:#1e1e1e;color:#fff}
+.tab .lb{font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:4px;background:var(--acc-fill);color:var(--acc-text);border:1px solid var(--acc)}
+.pane{display:none}
+.pane.active{display:block}
+.pane.jpane{min-height:762px}
+.jcode{padding:10px 0 12px}
+.ln .nx{border:1.5px solid transparent;border-radius:5px;padding:0 3px;margin:0 -4px}
+.ln.cur .nx{border-color:var(--acc);background:var(--acc-fill)}
+.locals{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:14px}
+.loc{border:1px solid var(--border);border-radius:6px;background:#0e0e0e;height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.loc b{font-weight:500;color:var(--sub);font-size:10.5px}
+.loc.A{border:2px solid var(--amber);background:var(--amber-fill);color:var(--amber-text)}
+.loc.B{border:2px solid var(--purple);background:var(--purple-fill);color:var(--purple-text)}
+.loclabel{font-size:11px;color:var(--faint);margin-top:12px}
+/* ---------- right panels ---------- */
+.viz{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pnl{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 14px;transition:border-color .2s, box-shadow .2s, opacity .2s}
+.pnl.full{grid-column:1 / -1}
+.pnl.on{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb, var(--acc) 22%, transparent)}
+.pnl.off{opacity:.38}
+.ph{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.ph b{font-size:13px;font-weight:700}
+.ph span{font-size:12px;color:var(--sub)}
+.mono{font-family:var(--mono)}
+
+/* bytecode strip */
+.src-line{font-family:var(--mono);font-size:13px;color:#d4d4d4;margin-bottom:10px}
+.src-line .hl{background:var(--acc-fill);border:1px solid var(--acc);border-radius:4px;padding:0 4px}
+.bytes{display:flex;gap:0;position:relative;padding-top:22px;flex-wrap:nowrap}
+.grp{display:flex;flex-direction:column;align-items:center;margin-right:8px}
+.grp .cells{display:flex}
+.byte{width:34px;height:36px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;background:var(--node);border:1px solid var(--border);margin-right:-1px;position:relative}
+.byte.op{color:#fff;font-weight:700}
+.byte.arg{color:#b5cea8}
+.byte.idx{border-color:var(--acc);background:var(--acc-fill);z-index:1}
+.grp .gl{font-family:var(--mono);font-size:11px;color:var(--sub);text-align:center;margin-top:5px;white-space:nowrap}
+.grp.cur .gl{color:#fff}
+.pcmark{position:absolute;top:0;font-family:var(--mono);font-size:11px;color:var(--acc-text);transform:translateX(-50%);transition:left .3s;white-space:nowrap}
+.pcmark::after{content:"▼";display:block;text-align:center;font-size:10px;color:var(--acc)}
+.idxlabel{font-family:var(--mono);font-size:12px;color:var(--acc-text);margin-left:6px;align-self:center}
+
+/* constant pool */
+.cp{display:flex;flex-direction:column;gap:6px}
+.cprow{display:grid;grid-template-columns:38px 86px 1fr auto;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:#111;font-size:12.5px}
+.cprow .n{font-family:var(--mono);color:var(--sub)}
+.cprow .k{font-family:var(--mono);color:#4ec9b0}
+.cprow .v{font-family:var(--mono);color:#d4d4d4}
+.cprow.hi{border-color:var(--acc);background:var(--acc-fill)}
+.chip{font-size:11px;padding:2px 8px;border-radius:5px;white-space:nowrap;font-weight:700}
+.chip.unres{border:1px dashed #6a6a6a;color:#aaa}
+.chip.res{background:var(--purple);color:#fff}
+
+/* klass */
+.kempty{height:112px;border:1.5px dashed #3a3a3a;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
+.krows{display:flex;flex-direction:column;gap:6px}
+.krow{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:#111;font-size:12.5px}
+.krow .kk{font-family:var(--mono);color:#dcdcaa}
+.krow.hi{border-color:var(--acc);background:var(--acc-fill)}
+.yes{color:#9be29b;font-weight:700}.no{color:#f19a9a;font-weight:700}
+
+/* tlab */
+.tlab{position:relative;padding:4px 0 34px}
+.slots{display:grid;grid-template-columns:repeat(12,1fr);border:1px solid var(--border);border-radius:6px;overflow:hidden;height:46px;background:#0e0e0e}
+.slot{border-right:1px solid #222}
+.slot:last-child{border-right:none}
+.obj{position:absolute;top:4px;height:46px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;transition:all .3s}
+.obj.A{border:2px solid var(--amber);background:var(--amber-fill);color:var(--amber-text)}
+.obj.B{border:2px solid var(--purple);background:var(--purple-fill);color:var(--purple-text)}
+.obj.raw{background:repeating-linear-gradient(45deg,#1a1a1a 0 6px,#262626 6px 12px);color:#bbb}
+.top-ptr{position:absolute;bottom:0;transform:translateX(-50%);font-family:var(--mono);font-size:11px;color:#fff;text-align:center;transition:left .35s;white-space:nowrap}
+.top-ptr::before{content:"▲";display:block;color:var(--acc);font-size:11px}
+.tlab .ends{position:absolute;bottom:2px;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.delta{position:absolute;top:-16px;font-family:var(--mono);font-size:11px;color:var(--acc-text);transform:translateX(-50%);white-space:nowrap}
+
+/* object layout */
+.layout{position:relative;padding:20px 0 0}
+.offs{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-bottom:3px}
+.cellrow{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;border:1px solid var(--border);border-radius:6px;overflow:hidden;height:52px}
+.cell{display:flex;align-items:center;justify-content:center;flex-direction:column;border-right:1px solid #333;font-family:var(--mono);font-size:12px;transition:background .25s}
+.cell:last-child{border-right:none}
+.cell.raw{background:repeating-linear-gradient(45deg,#161616 0 6px,#232323 6px 12px);color:#888}
+.cell.zero{background:#151515;color:#d4d4d4}
+.cell.mark{background:#1f2a35;color:#9cdcfe}
+.cell.kls{background:#1d2e2a;color:#4ec9b0}
+.cell.hi{outline:2px solid var(--acc);outline-offset:-2px}
+.cell small{font-size:10px;color:var(--sub);margin-top:2px;font-family:'Noto Sans KR',sans-serif}
+.roles{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;font-size:11px;color:var(--sub);margin-top:5px;text-align:center}
+.brk{position:absolute;top:0;height:16px;border:1.5px solid var(--acc);border-bottom:none;border-radius:4px 4px 0 0;font-size:10.5px;color:var(--acc-text);font-family:var(--mono);display:flex;justify-content:center;align-items:flex-start;line-height:1;padding-top:1px}
+.brk span{background:var(--panel);padding:0 5px;margin-top:-8px}
+.fence{margin-top:14px;height:30px;border:1.5px dashed #333;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--faint);transition:all .25s}
+.fence.on{border:1.5px solid var(--acc);background:var(--acc-fill);color:var(--acc-text)}
+.lempty{height:96px;border:1.5px dashed #3a3a3a;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
+
+/* stack */
+.stack{display:flex;flex-direction:column-reverse;gap:6px;position:relative;padding-left:46px}
+.sslot{height:38px;border:1px solid var(--border);border-radius:6px;background:#0e0e0e;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--faint)}
+.sslot.A{border:2px solid var(--amber);background:var(--amber-fill);color:var(--amber-text);font-weight:700}
+.sslot.B{border:2px solid var(--purple);background:var(--purple-fill);color:var(--purple-text);font-weight:700}
+.tos{position:absolute;left:0;font-family:var(--mono);font-size:11px;color:var(--acc-text);transition:bottom .3s}
+.tos::after{content:" ▶";color:var(--acc)}
+.slabel{font-size:11px;color:var(--faint);margin-top:8px;text-align:center}
+
+/* vm */
+.vmrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.stg{padding:8px 12px;border-radius:7px;border:1px solid var(--border);background:#111;font-size:12.5px;color:var(--sub);white-space:nowrap}
+.stg.done{color:#fff;border-color:#555}
+.stg.cur{border-color:var(--acc);background:var(--acc-fill);color:#fff;font-weight:700}
+.arrow{color:var(--faint);font-size:14px}
+.vmres{margin-left:auto;display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--sub)}
+.vmres .slot2{min-width:92px;height:32px;border:1px dashed #555;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--faint)}
+.vmres .slot2.A{border:2px solid var(--amber);background:var(--amber-fill);color:var(--amber-text);font-weight:700}
+</style>
+
+<style id="embed-fit">
+html,body{overflow-x:hidden}
+.wrap{width:1680px!important;max-width:none!important;transform-origin:0 0}
+.code{max-height:none!important}
+.mac{position:static!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="conds" id="conds"></div>
+    <div class="verdict" id="verdict"></div>
+    <div class="spacer"></div>
+    <div class="ctrl">
+      <button id="prev" type="button" aria-label="이전 줄">◀ 이전</button>
+      <div class="count" id="count"></div>
+      <button id="next" type="button" aria-label="다음 줄">다음 ▶</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- LEFT: tabbed editor -->
+    <div class="left">
+    <div class="mac">
+      <div class="macbar tabs">
+        <div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+        <div class="tabrow" role="tablist">
+          <button class="tab" role="tab" data-tab="j" type="button">Main.java <span class="lb" id="lbj"></span></button>
+          <button class="tab" role="tab" data-tab="c" type="button">bytecodeInterpreter.cpp <span class="lb" id="lbc"></span></button>
+        </div>
+      </div>
+      <div class="pane jpane" data-pane="j"><div class="code jcode" id="jcode"></div></div>
+      <div class="pane" data-pane="c"><div class="code" id="code"></div></div>
+    </div>
+    </div>
+
+    <!-- RIGHT: visualization -->
+    <div class="viz">
+      <div class="pnl full" id="pA">
+        <div class="ph"><b>바이트코드</b><span>Main.main()</span></div>
+        <div class="bytes" id="bytes"></div>
+      </div>
+      <div class="pnl" id="pB">
+        <div class="ph"><b>상수 풀</b><span>Main.class</span></div>
+        <div class="cp" id="cp"></div>
+      </div>
+      <div class="pnl" id="pC">
+        <div class="ph"><b>Klass</b><span>Point</span></div>
+        <div id="klass"></div>
+      </div>
+      <div class="pnl full" id="pD">
+        <div class="ph"><b>TLAB</b><span>스레드 전용 할당 구역 · 1칸 = 8B</span></div>
+        <div class="tlab" id="tlab"></div>
+      </div>
+      <div class="pnl" id="pE">
+        <div class="ph"><b>객체 메모리</b><span id="objname"></span></div>
+        <div id="layout"></div>
+        <div class="fence" id="fence">OrderAccess::storestore()</div>
+      </div>
+      <div class="pnl" id="pF">
+        <div class="ph"><b>오퍼랜드 스택</b><span>main()</span></div>
+        <div class="stack" id="stack"></div>
+        <div class="loclabel">지역 변수</div>
+        <div class="locals" id="locals"></div>
+      </div>
+      <div class="pnl full" id="pG">
+        <div class="ph"><b>VM 런타임</b><span>InterpreterRuntime::_new</span></div>
+        <div class="vmrow" id="vm"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= source ================= */
+const SRC = [
+'CASE(_new): {',
+'  u2 index = Bytes::get_Java_u2(pc+1);',
+'',
+'  ConstantPool* constants = istate->method()->constants();',
+'  if (UseTLAB && !constants->tag_at(index).is_unresolved_klass()) {',
+'    Klass* entry = constants->resolved_klass_at(index);',
+'    InstanceKlass* ik = InstanceKlass::cast(entry);',
+'    if (ik->is_initialized() && ik->can_be_fastpath_allocated()) {',
+'      size_t obj_size = ik->size_helper();',
+'      HeapWord* result = THREAD->tlab().allocate(obj_size);',
+'      if (result != NULL) {',
+'        if (DEBUG_ONLY(true ||) !ZeroTLAB) {',
+'          size_t hdr_size = oopDesc::header_size();',
+'          Copy::fill_to_words(result + hdr_size, obj_size - hdr_size, 0);',
+'        }',
+'        oop obj = cast_to_oop(result);',
+'        assert(!UseBiasedLocking, "Not implemented");',
+'        obj->set_mark(markWord::prototype());',
+'        obj->set_klass_gap(0);',
+'        obj->set_klass(ik);',
+'        OrderAccess::storestore();',
+'        SET_STACK_OBJECT(obj, 0);',
+'        UPDATE_PC_AND_TOS_AND_CONTINUE(3, 1);',
+'      }',
+'    }',
+'  }',
+'  CALL_VM(InterpreterRuntime::_new(THREAD, METHOD->constants(), index),',
+'          handle_exception);',
+'  OrderAccess::storestore();',
+'  SET_STACK_OBJECT(THREAD->vm_result(), 0);',
+'  THREAD->set_vm_result(NULL);',
+'  UPDATE_PC_AND_TOS_AND_CONTINUE(3, 1);',
+'}'
+];
+const LH = 22, PADTOP = 12;
+const KW = new Set(['if','NULL','true','false']);
+const TY = new Set(['u2','size_t','ConstantPool','Klass','InstanceKlass','HeapWord','oop']);
+const MC = new Set(['CASE','CALL_VM','SET_STACK_OBJECT','UPDATE_PC_AND_TOS_AND_CONTINUE','DEBUG_ONLY','assert']);
+const CS = new Set(['UseTLAB','ZeroTLAB','UseBiasedLocking','THREAD','METHOD','_new']);
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function hl(line){
+  const re = /("[^"]*")|(\b\d+\b)|([A-Za-z_]\w*)|(\s+)|([^\sA-Za-z_\d"]+)/g;
+  let out='', m;
+  while((m = re.exec(line))){
+    const [t] = m;
+    if(m[1]) out += `<span class="t-st">${esc(t)}</span>`;
+    else if(m[2]) out += `<span class="t-nu">${t}</span>`;
+    else if(m[3]){
+      const after = line.slice(re.lastIndex).trimStart()[0];
+      let c = KW.has(t)?'t-kw':TY.has(t)?'t-ty':MC.has(t)?'t-mc':CS.has(t)?'t-cs':(after==='('?'t-fn':'');
+      out += c ? `<span class="${c}">${t}</span>` : t;
+    } else out += esc(t);
+  }
+  return out || ' ';
+}
+const codeEl = document.getElementById('code');
+function boxHTML(cls, from, to, tag){
+  const top = PADTOP + (from-1)*LH - 2, h = (to-from+1)*LH + 4;
+  return `<div class="box ${cls}" style="top:${top}px;height:${h}px"><span class="tag">${tag}</span></div>`;
+}
+codeEl.innerHTML = boxHTML('fast',5,26,'빠른 경로 · TLAB') + boxHTML('slow',27,32,'느린 경로 · VM 호출') +
+  SRC.map((l,i)=>`<div class="ln" data-l="${i+1}"><span class="no">${i+1}</span><span class="tx">${hl(l)}</span></div>`).join('');
+
+const JAVA = [
+ '<span class="t-kw">public class</span> <span class="t-ty">Main</span> {',
+ '    <span class="t-kw">public static void</span> <span class="t-fn">main</span>(<span class="t-ty">String</span>[] args) {',
+ '        <span class="t-ty">Point</span> a = <span class="nx"><span class="t-kw">new</span> <span class="t-fn">Point</span>()</span>;',
+ '        <span class="t-ty">Point</span> b = <span class="nx"><span class="t-kw">new</span> <span class="t-fn">Point</span>()</span>;',
+ '    }',
+ '}'];
+document.getElementById('jcode').innerHTML = JAVA.map((l,i)=>`<div class="ln" data-j="${i+1}"><span class="no">${i+1}</span><span class="tx">${l}</span></div>`).join('');
+
+/* ================= steps ================= */
+const RAW = ['raw','raw','raw','raw','raw'];      // mark(8) klass(4) x/gap(4) y(4) pad(4)
+const DONE = ['mark','kls','zero','zero','zero'];
+const STEPS = [
+ // ---- phase 1 : first run, slow path
+ {ph:1, l:[1],     role:'new 진입',                 f:['pA'], s:{pc:0}},
+ {ph:1, l:[2],     role:'index 읽기',               f:['pA','pB'], s:{idx:true, cpHi:true}},
+ {ph:1, l:[4],     role:'상수 풀',                  f:['pB']},
+ {ph:1, l:[5],     role:'빠른 경로 검사',           f:['pB'], cond:[['UseTLAB',1],['#7 해석됨',0]], v:'→ 느린 경로'},
+ {ph:1, l:[27,28], role:'VM 호출',                  f:['pG'], s:{vmOn:true, vmStage:0, cpHi:false}},
+ {ph:1, l:[27,28], role:'클래스 해석',              f:['pG','pB','pC'], s:{vmStage:1, cp7:'res', klass:true, kInit:false, cpHi:true}},
+ {ph:1, l:[27,28], role:'클래스 초기화 <clinit>',   f:['pG','pC'], s:{vmStage:2, kInit:true, kHi:'init', cpHi:false}},
+ {ph:1, l:[27,28], role:'힙 할당 · 객체 완성',      f:['pG','pD','pE'], s:{vmStage:3, objs:[{id:'A',st:0,raw:false}], top:3, lay:'A', cells:DONE.slice(), vmRes:'A', kHi:null, delta:'+24B'}},
+ {ph:1, l:[29],    role:'쓰기 순서 고정',           f:['pE'], s:{fence:true, delta:null}},
+ {ph:1, l:[30],    role:'스택에 올리기',            f:['pF','pG'], s:{fence:false, stack:['A']}},
+ {ph:1, l:[31],    role:'vm_result 비우기',         f:['pG'], s:{vmRes:null}},
+ {ph:1, l:[32],    role:'pc += 3 → dup',            f:['pA','pF'], s:{pc:3, idx:false}},
+ // ---- phase 2 : run again, fast path
+ {ph:2, l:[1],     role:'두 번째 new',              f:['pA','pF'], s:{pc:8, stack:[], loc:{a:'A',b:null}, vmOn:false, vmStage:-1, lay:null, cells:null}},
+ {ph:2, l:[2],     role:'index 읽기',               f:['pA','pB'], s:{idx:true, cpHi:true}},
+ {ph:2, l:[4],     role:'상수 풀',                  f:['pB']},
+ {ph:2, l:[5],     role:'빠른 경로 검사',           f:['pB'], cond:[['UseTLAB',1],['#7 해석됨',1]], v:'→ 빠른 경로'},
+ {ph:2, l:[6],     role:'Klass 꺼내기',             f:['pB','pC'], s:{kHi:'all'}},
+ {ph:2, l:[7],     role:'InstanceKlass',            f:['pC'], s:{cpHi:false}},
+ {ph:2, l:[8],     role:'할당 가능 검사',           f:['pC'], cond:[['초기화',1],['빠른 할당',1]], s:{kHi:'init'}},
+ {ph:2, l:[9],     role:'크기',                     f:['pC'], s:{kHi:'size'}},
+ {ph:2, l:[10],    role:'TLAB 할당',                f:['pD','pE'], s:{kHi:null, objs:[{id:'A',st:0,raw:false},{id:'B',st:3,raw:true}], top:6, lay:'B', cells:RAW.slice(), delta:'+24B'}},
+ {ph:2, l:[11],    role:'할당 성공',                f:['pD'], cond:[['result != NULL',1]], s:{delta:null}},
+ {ph:2, l:[12],    role:'0 채우기 여부',            f:['pE'], cond:[['!ZeroTLAB',1]]},
+ {ph:2, l:[13],    role:'헤더 크기',                f:['pE'], s:{brk:'hdr'}},
+ {ph:2, l:[14],    role:'필드 영역 0',              f:['pE'], s:{brk:'fill', cset:{3:'zero',4:'zero'}, chi:[3,4]}},
+ {ph:2, l:[16],    role:'oop',                      f:['pE'], s:{brk:null, chi:[]}},
+ {ph:2, l:[17],    role:'편향 락 없음',             f:['pE']},
+ {ph:2, l:[18],    role:'mark word',                f:['pE'], s:{cset:{0:'mark'}, chi:[0]}},
+ {ph:2, l:[19],    role:'klass gap = 0',            f:['pE'], s:{cset:{2:'zero'}, chi:[2]}},
+ {ph:2, l:[20],    role:'klass = Point',            f:['pE','pC','pD'], s:{cset:{1:'kls'}, chi:[1], objs:[{id:'A',st:0,raw:false},{id:'B',st:3,raw:false}]}},
+ {ph:2, l:[21],    role:'쓰기 순서 고정',           f:['pE'], s:{fence:true, chi:[]}},
+ {ph:2, l:[22],    role:'스택에 올리기',            f:['pF'], s:{fence:false, stack:['B']}},
+ {ph:2, l:[23],    role:'pc += 3 → dup',            f:['pA','pF'], s:{pc:11, idx:false}},
+];
+
+/* build cumulative snapshots */
+const INIT = {loc:{a:null,b:null}, pc:0, idx:false, cpHi:false, cp7:'unres', klass:false, kInit:false, kHi:null,
+  objs:[], top:0, delta:null, lay:null, cells:null, chi:[], brk:null, fence:false,
+  stack:[], vmOn:false, vmStage:-1, vmRes:null};
+const SNAP = [];
+(function(){
+  let st = JSON.parse(JSON.stringify(INIT));
+  for(const step of STEPS){
+    const s = step.s || {};
+    for(const [k,v] of Object.entries(s)){
+      if(k==='cset'){ for(const [i,c] of Object.entries(v)) st.cells[i]=c; }
+      else st[k] = JSON.parse(JSON.stringify(v));
+    }
+    SNAP.push(JSON.parse(JSON.stringify(st)));
+  }
+})();
+
+/* ================= render ================= */
+const $ = id => document.getElementById(id);
+const BYTES = [
+  {pc:0,  g:'new #7', b:['BB','00','07']},
+  {pc:3,  g:'dup', b:['59']},
+  {pc:4,  g:'invokespecial #9', b:['B7','00','09']},
+  {pc:7,  g:'astore_1', b:['4C']},
+  {pc:8,  g:'new #7', b:['BB','00','07']},
+  {pc:11, g:'dup', b:['59']},
+  {pc:12, g:'invokespecial #9', b:['B7','00','09']},
+  {pc:15, g:'astore_2', b:['4D']},
+  {pc:16, g:'return', b:['B1']},
+];
+function renderBytes(st){
+  const newPc = st.pc<8 ? 0 : 8;
+  let html='';
+  BYTES.forEach((g,gi)=>{
+    const cur = (st.pc===g.pc);
+    const idx = st.idx && g.pc===newPc;
+    html += `<div class="grp ${cur?'cur':''}"><div class="cells">` +
+      g.b.map((b,bi)=>`<div class="byte ${bi===0?'op':'arg'} ${(idx&&bi>0)?'idx':''}">${b}</div>`).join('') +
+      `</div><div class="gl">${idx?'index = 7':g.g}</div></div>`;
+  });
+  $('bytes').innerHTML = html + `<div class="pcmark" id="pcm">pc = ${st.pc}</div>`;
+  requestAnimationFrame(()=>{
+    const gi = BYTES.findIndex(g=>g.pc===st.pc);
+    const target = $('bytes').querySelectorAll('.grp')[gi].querySelector('.byte');
+    const base = $('bytes').getBoundingClientRect(), r = target.getBoundingClientRect();
+    $('pcm').style.left = ((r.left - base.left + r.width/2)/(window.__fitScale||1)) + 'px';
+  });
+}
+function renderCP(st){
+  const r7 = st.cp7==='res';
+  $('cp').innerHTML =
+   `<div class="cprow ${st.cpHi?'hi':''}"><span class="n">#7</span><span class="k">Class</span><span class="v">${r7?'→ Klass*':'#8'}</span><span class="chip ${r7?'res':'unres'}">${r7?'해석됨':'미해석'}</span></div>`+
+   `<div class="cprow"><span class="n">#8</span><span class="k">Utf8</span><span class="v">"Point"</span><span></span></div>`+
+   `<div class="cprow"><span class="n">#9</span><span class="k">Methodref</span><span class="v">Point.&lt;init&gt;</span><span></span></div>`;
+}
+function renderKlass(st){
+  if(!st.klass){ $('klass').innerHTML = `<div class="kempty">아직 없음</div>`; return; }
+  const h = k => (st.kHi==='all'||st.kHi===k)?'hi':'';
+  $('klass').innerHTML = `<div class="krows">
+    <div class="krow ${h('init')}"><span class="kk">is_initialized()</span>${st.kInit?'<span class="yes">✓</span>':'<span class="no">✕</span>'}</div>
+    <div class="krow ${h('init')}"><span class="kk">can_be_fastpath_allocated()</span><span class="yes">✓</span></div>
+    <div class="krow ${h('size')}"><span class="kk">size_helper()</span><span class="mono">3 words · 24B</span></div>
+  </div>`;
+}
+function renderTLAB(st){
+  let html = `<div class="slots">${'<div class="slot"></div>'.repeat(12)}</div>`;
+  const pct = n => (n/12*100);
+  st.objs.forEach(o=>{
+    html += `<div class="obj ${o.id} ${o.raw?'raw':''}" style="left:calc(${pct(o.st)}% + 2px);width:calc(${pct(3)}% - 4px)">Point ${o.id}</div>`;
+  });
+  html += `<div class="top-ptr" style="left:${pct(st.top)}%">top${st.delta?` <span style="color:var(--acc-text)">${st.delta}</span>`:''}</div>`;
+  html += (st.top>0?`<div class="ends" style="left:0">start</div>`:'') + `<div class="ends" style="right:0">end</div>`;
+  $('tlab').innerHTML = html;
+}
+const CELL_TXT = {raw:'??', zero:'0', mark:'prototype', kls:'→ Point'};
+function renderLayout(st){
+  if(!st.lay){ $('layout').innerHTML = `<div class="lempty">할당 전</div>`; $('objname').textContent=''; return; }
+  $('objname').textContent = `Point ${st.lay} · 24B`;
+  const c = st.cells;
+  let brk='';
+  if(st.brk==='hdr') brk = `<div class="brk" style="left:0;width:66.6%"><span>header_size() = 2 words</span></div>`;
+  if(st.brk==='fill') brk = `<div class="brk" style="left:66.6%;width:33.4%"><span>fill 0</span></div>`;
+  $('layout').innerHTML = `<div class="layout">${brk}
+    <div class="offs"><span>0</span><span>8</span><span>12</span><span>16</span><span>20</span></div>
+    <div class="cellrow">${c.map((k,i)=>`<div class="cell ${k} ${st.chi.includes(i)?'hi':''}">${CELL_TXT[k]}</div>`).join('')}</div>
+    <div class="roles"><span>mark word</span><span>klass</span><span>gap · x</span><span>y</span><span>pad</span></div>
+  </div>`;
+  $('fence').classList.toggle('on', st.fence);
+}
+function renderStack(st){
+  const n = 2;
+  let html='';
+  for(let i=0;i<n;i++){
+    const v = st.stack[i];
+    html += `<div class="sslot ${v||''}">${v?('→ Point '+v):''}</div>`;
+  }
+  const h = 38, g = 6;
+  const tosBottom = st.stack.length ? (st.stack.length-1)*(h+g) + h/2 - 7 : h/2 - 7;
+  html += `<div class="tos" style="bottom:${tosBottom}px;opacity:${st.stack.length?1:.4}">TOS</div>`;
+  $('stack').innerHTML = html;
+}
+function renderLocals(st){
+  const L = [['0','args',null],['1','a',st.loc.a],['2','b',st.loc.b]];
+  $('locals').innerHTML = L.map(([n,name,v])=>`<div class="loc ${v||''}"><b>${n} · ${name}</b>${n==='0'?'String[]':(v?'→ Point '+v:'')}</div>`).join('');
+}
+function renderVM(st){
+  const names = ['해석','초기화 <clinit>','힙 할당'];
+  let html = names.map((n,i)=>{
+    const cls = !st.vmOn ? '' : (i+1===st.vmStage ? 'cur' : (i+1<st.vmStage ? 'done':''));
+    return (i?'<span class="arrow">→</span>':'') + `<div class="stg ${cls}">${n.replace('<','&lt;').replace('>','&gt;')}</div>`;
+  }).join('');
+  html += `<div class="vmres">vm_result<div class="slot2 ${st.vmRes||''}">${st.vmRes?('→ Point '+st.vmRes):'NULL'}</div></div>`;
+  $('vm').innerHTML = html;
+}
+
+let activeTab = null;
+function setTab(t){
+  activeTab = t;
+  document.querySelectorAll('.tab').forEach(b=>{ const on=b.dataset.tab===t; b.classList.toggle('active',on); b.setAttribute('aria-selected',on); });
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active', p.dataset.pane===t));
+}
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+let cur = 0;
+function render(){
+  const step = STEPS[cur], st = SNAP[cur];
+  document.body.classList.toggle('ph2', step.ph===2);
+  $('conds').innerHTML = (step.cond||[]).map(([t,ok])=>`<span class="cond ${ok?'ok':'no'}">${t} ${ok?'✓':'✕'}</span>`).join('');
+  $('verdict').textContent = step.v || '';
+  $('count').textContent = `${cur+1} / ${STEPS.length}`;
+  $('prev').disabled = cur===0; $('next').disabled = cur===STEPS.length-1;
+  document.querySelectorAll('.ln[data-l]').forEach(el=>el.classList.toggle('cur', step.l.includes(+el.dataset.l)));
+  const jl = step.ph===1?3:4;
+  document.querySelectorAll('.ln[data-j]').forEach(el=>el.classList.toggle('cur', +el.dataset.j===jl));
+  $('lbj').textContent = jl + '행';
+  $('lbc').textContent = step.l.join('–') + '행';
+  setTab((cur===0 || cur===12) ? 'j' : 'c');
+  ['pA','pB','pC','pD','pE','pF','pG'].forEach(id=>{
+    $(id).classList.toggle('on', step.f.includes(id));
+  });
+  $('pG').classList.toggle('off', step.ph===2);
+  renderBytes(st); renderCP(st); renderKlass(st); renderTLAB(st); renderLayout(st); renderStack(st); renderLocals(st); renderVM(st);
+}
+$('prev').onclick = ()=>{ if(cur>0){cur--;render();} };
+$('next').onclick = ()=>{ if(cur<STEPS.length-1){cur++;render();} };
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight'||e.key===' '){ e.preventDefault(); $('next').click(); }
+  if(e.key==='ArrowLeft'){ e.preventDefault(); $('prev').click(); }
+});
+window.addEventListener('resize', render);
+render();
+</script>
+
+<script id="embed-fit-js">
+(function(){
+  const W=1680, wrap=document.querySelector('.wrap');
+  const box=document.createElement('div'); box.id='fitbox'; box.style.cssText='position:relative;overflow:hidden;width:100%';
+  wrap.parentNode.insertBefore(box,wrap); box.appendChild(wrap);
+  function fit(){
+    const s=Math.min(1, document.documentElement.clientWidth/W);
+    wrap.style.transform='scale('+s+')';
+    box.style.height=Math.ceil(wrap.offsetHeight*s)+'px';
+    window.__fitScale=s;
+  }
+  window.addEventListener('resize',fit);
+  new ResizeObserver(fit).observe(wrap);
+  fit();
+})();
+</script>
+</body>
+</html>

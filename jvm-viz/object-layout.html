@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>객체 생성과 메모리 레이아웃 — 직접 만드는 세 가지 경우</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000; --panel:#0b0b0b; --line:#262626; --node:#1b1b1b; --border:#4c4c4c;
+  --sub:#9a9a9a; --faint:#5e5e5e;
+  --acc:#886dcf; --acc-fill:#20163a; --acc-text:#c5b9eb;
+  --hdr:#1f2a35; --hdr-text:#9cdcfe; --dat:#151515;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:#fff;font-family:'Noto Sans KR',sans-serif}
+body{background-image:linear-gradient(#111 1px,transparent 1px),linear-gradient(90deg,#111 1px,transparent 1px);background-size:48px 48px}
+.wrap{max-width:1680px;margin:0 auto;padding:18px 20px 24px}
+.top{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px}
+.top button{font:inherit;font-size:14px;color:#fff;background:var(--node);border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer}
+.top button:hover{border-color:#8a8a8a}
+.top button:disabled{opacity:.3;cursor:default}
+.count{font-family:var(--mono);font-size:13px;color:var(--sub);min-width:62px;text-align:center}
+.main{display:grid;grid-template-columns:minmax(500px,38fr) 62fr;gap:16px;align-items:start}
+@media (max-width:0px){ .main{grid-template-columns:1fr} }
+
+/* editor */
+.mac{background:#1e1e1e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.macbar{height:36px;background:#2b2b2b;display:flex;align-items:center}
+.dots{display:flex;gap:8px;padding-left:14px}
+.dots i{width:12px;height:12px;border-radius:50%;display:block}
+.tabrow{display:flex;align-items:flex-end;height:100%;margin-left:18px;gap:2px}
+.tab{font:inherit;font-size:13px;color:#9a9a9a;background:transparent;border:none;border-radius:8px 8px 0 0;height:30px;padding:0 14px;cursor:pointer;margin-top:6px;display:flex;align-items:center;gap:7px}
+.tab:hover{color:#d4d4d4}
+.tab.active{background:#1e1e1e;color:#fff}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--acc);display:none}
+.tab.live .dot{display:block}
+.pane{display:none;min-height:300px}
+.pane.active{display:block}
+.code{padding:12px 0 14px;font-family:var(--mono);font-size:13.5px;line-height:24px;overflow-x:auto}
+.ln{display:flex;position:relative;white-space:pre}
+.ln .no{width:44px;flex:none;text-align:right;padding-right:14px;color:#5a5a5a}
+.ln .tx{color:#d4d4d4;padding-right:18px}
+.ln.cur{background:rgba(255,255,255,.07)}
+.ln.cur::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc)}
+.ln.cur .no{color:#fff}
+.nx{border:1.5px solid transparent;border-radius:5px;padding:0 3px;margin:0 -4px}
+.ln.cur .nx{border-color:var(--acc);background:var(--acc-fill)}
+.t-kw{color:#569cd6}.t-ty{color:#4ec9b0}.t-fn{color:#dcdcaa}.t-nu{color:#b5cea8}.t-cm{color:#6a9955}
+
+/* right */
+.viz{position:relative;display:grid;grid-template-columns:66fr 34fr;gap:12px}
+.pnl{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 14px}
+.pnl.full{grid-column:1 / -1}
+.ph{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;gap:8px;align-items:baseline}
+.ph span{font-size:12px;color:var(--sub);font-weight:400}
+#arrows{position:absolute;inset:0;pointer-events:none;overflow:visible;z-index:5}
+
+/* stack */
+.slots{display:flex;gap:10px}
+.slot{flex:1;border:1px solid var(--border);border-radius:8px;background:#0e0e0e;height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--mono);transition:all .25s}
+.slot b{font-size:11px;font-weight:500;color:var(--sub)}
+.slot i{font-style:normal;font-size:12px;color:var(--faint);margin-top:2px}
+.slot.set{border-color:#8a8a8a}
+.slot.set i{color:#fff}
+.slot.hi{border:2px solid var(--acc);background:var(--acc-fill)}
+.slot.dim{opacity:.4}
+
+/* heap */
+.heap{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start;min-height:430px}
+.card{border:1px solid #3a3a3a;border-radius:9px;background:#101010;padding:8px 8px 9px;transition:all .25s}
+.card.hidden{visibility:hidden}
+.card.hi{border:2px solid var(--acc);box-shadow:0 0 0 3px rgba(136,109,207,.18)}
+.card.shared{border-style:dashed;opacity:.85}
+.ctitle{font-family:var(--mono);font-size:12px;font-weight:700;text-align:center;margin-bottom:7px}
+.grp{border-radius:6px;overflow:hidden;margin-top:6px;border:1px solid #2c2c2c}
+.gname{font-size:10.5px;color:var(--sub);padding:3px 7px;background:#161616;border-bottom:1px solid #2c2c2c}
+.row{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:5px 7px;font-family:var(--mono);font-size:11px;border-top:1px solid #222;transition:background .25s}
+.row:first-of-type{border-top:none}
+.row .k{color:#cfcfcf;white-space:nowrap}
+.row .k small{display:block;font-size:9.5px;color:var(--faint);font-family:'Noto Sans KR',sans-serif}
+.row .v{white-space:nowrap;color:#fff}
+.grp.h .row{background:var(--hdr)}
+.grp.h .row .k{color:var(--hdr-text)}
+.grp.d .row{background:var(--dat)}
+.row.raw{background:repeating-linear-gradient(45deg,#161616 0 6px,#222 6px 12px)!important}
+.row.raw .v{color:#777}
+.row.hi{outline:2px solid var(--acc);outline-offset:-2px}
+.pad{margin-top:6px;height:18px;border-radius:5px;border:1px dashed #3a3a3a;background:repeating-linear-gradient(90deg,#141414 0 4px,#1b1b1b 4px 8px);font-size:9.5px;color:var(--faint);display:flex;align-items:center;justify-content:center}
+
+/* metaspace */
+.meta{border:1.5px dashed #4a4a4a;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:10px;min-height:430px}
+.mbox{border:1px solid var(--border);border-radius:8px;background:#141414;padding:9px 10px;transition:all .25s}
+.mbox.hidden{visibility:hidden}
+.mbox.hi{border:2px solid var(--acc);background:var(--acc-fill)}
+.mbox .mn{font-family:var(--mono);font-size:12.5px;font-weight:700}
+.mbox .ms{font-size:10.5px;color:var(--sub);margin-top:2px}
+</style>
+
+<style id="embed-fit">
+html,body{overflow-x:hidden}
+.wrap{width:1680px!important;max-width:none!important;transform-origin:0 0}
+.code{max-height:none!important}
+.mac{position:static!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <button id="prev" type="button" aria-label="이전 단계">◀ 이전</button>
+    <div class="count" id="count"></div>
+    <button id="next" type="button" aria-label="다음 단계">다음 ▶</button>
+  </div>
+  <div class="main">
+    <div class="mac">
+      <div class="macbar">
+        <div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+        <div class="tabrow" role="tablist">
+          <button class="tab" data-tab="m" type="button">Main.java <span class="dot"></span></button>
+          <button class="tab" data-tab="p" type="button">Point.java <span class="dot"></span></button>
+          <button class="tab" data-tab="a" type="button">ArrayList.java <span class="dot"></span></button>
+        </div>
+      </div>
+      <div class="pane" data-pane="m"><div class="code" id="c-m"></div></div>
+      <div class="pane" data-pane="p"><div class="code" id="c-p"></div></div>
+      <div class="pane" data-pane="a"><div class="code" id="c-a"></div></div>
+    </div>
+
+    <div class="viz" id="viz">
+      <svg id="arrows" aria-hidden="true"></svg>
+      <div class="pnl full">
+        <div class="ph">스택<span>main() 지역 변수</span></div>
+        <div class="slots" id="slots"></div>
+      </div>
+      <div class="pnl">
+        <div class="ph">힙</div>
+        <div class="heap" id="heap"></div>
+      </div>
+      <div class="pnl">
+        <div class="ph">메타스페이스</div>
+        <div class="meta" id="meta"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- code ---------- */
+const K=t=>`<span class="t-kw">${t}</span>`, T=t=>`<span class="t-ty">${t}</span>`, F=t=>`<span class="t-fn">${t}</span>`, N=t=>`<span class="t-nu">${t}</span>`, C=t=>`<span class="t-cm">${t}</span>`;
+const NX=t=>`<span class="nx">${t}</span>`;
+const CODE = {
+ m:[
+  `${K('import')} java.util.*;`,
+  ``,
+  `${K('public class')} ${T('Main')} {`,
+  `    ${K('public static void')} ${F('main')}(${T('String')}[] args) {`,
+  `        ${T('Point')} p = ${NX(`${K('new')} ${F('Point')}()`)};`,
+  `        ${K('int')}[] nums = ${NX(`${K('new')} ${K('int')}[${N('3')}]`)};`,
+  `        ${T('List')}&lt;${T('String')}&gt; list = ${NX(`${K('new')} ${F('ArrayList')}&lt;&gt;()`)};`,
+  `    }`,
+  `}`],
+ p:[
+  `${K('class')} ${T('Point')} {`,
+  `    ${K('int')} x;`,
+  `    ${K('int')} y;`,
+  `}`],
+ a:[
+  `${C('// java.util.ArrayList (발췌)')}`,
+  `${K('public class')} ${T('ArrayList')}&lt;E&gt; ${K('extends')} ${T('AbstractList')}&lt;E&gt; {`,
+  `    ${K('private static final')} ${T('Object')}[] EMPTY_DEFAULT = {};`,
+  `    ${K('transient')} ${T('Object')}[] elementData;`,
+  `    ${K('private int')} size;`,
+  ``,
+  `    ${K('public')} ${F('ArrayList')}() {`,
+  `        ${K('this')}.elementData = EMPTY_DEFAULT;`,
+  `    }`,
+  `}`],
+};
+for(const [k,lines] of Object.entries(CODE)){
+  document.getElementById('c-'+k).innerHTML = lines.map((l,i)=>`<div class="ln" data-f="${k}" data-l="${i+1}"><span class="no">${i+1}</span><span class="tx">${l||' '}</span></div>`).join('');
+}
+
+/* ---------- model ---------- */
+const OBJ = {
+ P:{title:'Point', rows:[['h','mark','마크 워드'],['h','klass','클래스 워드'],['d','x','x'],['d','y','y']]},
+ A:{title:'int[3]', rows:[['h','mark','마크 워드'],['h','klass','클래스 워드'],['h','len','배열 길이'],['d','e0','[0]'],['d','e1','[1]'],['d','e2','[2]']]},
+ L:{title:'ArrayList', rows:[['h','mark','마크 워드'],['h','klass','클래스 워드'],['d','modCount','modCount|AbstractList에서 상속'],['d','size','size'],['d','elementData','elementData']]},
+ E:{title:'Object[0]', rows:[['h','mark','마크 워드'],['h','klass','클래스 워드'],['h','len','배열 길이']], shared:true},
+};
+const META = [['P','Point','class Point'],['A','int[]','배열 클래스'],['L','ArrayList','부모: AbstractList'],['E','Object[]','배열 클래스']];
+
+/* steps: tab, lines, mutations */
+const raw = keys => Object.fromEntries(keys.map(k=>[k,['raw','??']]));
+const STEPS = [
+ // ---- 1. new Point()
+ {tab:'m', l:[5], s:{meta:{P:1}, hiMeta:['P']}},
+ {tab:'m', l:[5], s:{obj:{P:raw(['mark','klass','x','y'])}, hiObj:['P'], hiMeta:[]}},
+ {tab:'m', l:[5], s:{set:{P:{x:['val','0'], y:['val','0']}}, hiRows:['P.x','P.y']}},
+ {tab:'m', l:[5], s:{set:{P:{mark:['val','기본값'], klass:['val','→ Point']}}, hiRows:['P.mark','P.klass'], hiMeta:['P']}},
+ {tab:'p', l:[1,2,3,4], s:{hiRows:[], hiMeta:[], hiObj:['P']}},
+ {tab:'m', l:[5], s:{stack:{p:'P'}, hiStack:['p'], hiObj:[]}},
+ // ---- 2. new int[3]
+ {tab:'m', l:[6], s:{meta:{A:1}, hiMeta:['A'], hiStack:[]}},
+ {tab:'m', l:[6], s:{obj:{A:raw(['mark','klass','len','e0','e1','e2'])}, hiObj:['A'], hiMeta:[]}},
+ {tab:'m', l:[6], s:{set:{A:{e0:['val','0'],e1:['val','0'],e2:['val','0']}}, hiRows:['A.e0','A.e1','A.e2']}},
+ {tab:'m', l:[6], s:{set:{A:{mark:['val','기본값'], klass:['val','→ int[]'], len:['val','3']}}, hiRows:['A.mark','A.klass','A.len'], hiMeta:['A']}},
+ {tab:'m', l:[6], s:{stack:{nums:'A'}, hiStack:['nums'], hiRows:[], hiMeta:[], hiObj:[]}},
+ // ---- 3. new ArrayList<>()
+ {tab:'a', l:[2,3], s:{meta:{L:1,E:1}, obj:{E:{mark:['val','기본값'],klass:['val','→ Object[]'],len:['val','0']}}, hiMeta:['L','E'], hiObj:['E'], hiStack:[]}},
+ {tab:'m', l:[7], s:{obj:{L:raw(['mark','klass','modCount','size','elementData'])}, hiObj:['L'], hiMeta:[]}},
+ {tab:'m', l:[7], s:{set:{L:{modCount:['val','0'], size:['val','0'], elementData:['val','null']}}, hiRows:['L.modCount','L.size','L.elementData']}},
+ {tab:'m', l:[7], s:{set:{L:{mark:['val','기본값'], klass:['val','→ ArrayList']}}, hiRows:['L.mark','L.klass'], hiMeta:['L']}},
+ {tab:'a', l:[7,8,9], s:{set:{L:{elementData:['ref','→ Object[0]']}}, hiRows:['L.elementData'], hiMeta:[], hiObj:['E']}},
+ {tab:'m', l:[7], s:{stack:{list:'L'}, hiStack:['list'], hiRows:[], hiObj:[]}},
+];
+
+/* snapshots */
+const INIT = {meta:{}, obj:{}, stack:{p:null,nums:null,list:null}, hiMeta:[], hiObj:[], hiRows:[], hiStack:[]};
+const SNAP=[]; (function(){
+  let st=JSON.parse(JSON.stringify(INIT));
+  for(const step of STEPS){
+    const s=step.s||{};
+    if(s.meta) Object.assign(st.meta, s.meta);
+    if(s.obj) for(const [id,rows] of Object.entries(s.obj)) st.obj[id]=JSON.parse(JSON.stringify(rows));
+    if(s.set) for(const [id,rows] of Object.entries(s.set)) Object.assign(st.obj[id], JSON.parse(JSON.stringify(rows)));
+    if(s.stack) Object.assign(st.stack, s.stack);
+    for(const k of ['hiMeta','hiObj','hiRows','hiStack']) if(s[k]) st[k]=s[k].slice();
+    SNAP.push(JSON.parse(JSON.stringify(st)));
+  }
+})();
+
+/* ---------- render ---------- */
+const $=id=>document.getElementById(id);
+function renderStack(st){
+  const S=[['args','String[]',null,true],['p','Point',st.stack.p],['nums','int[]',st.stack.nums],['list','List',st.stack.list]];
+  $('slots').innerHTML = S.map(([n,t,v,dim])=>`<div class="slot ${dim?'dim':''} ${v?'set':''} ${st.hiStack.includes(n)?'hi':''}" id="s-${n}"><b>${t} ${n}</b><i>${v?'참조 ●':(dim?'참조':'—')}</i></div>`).join('');
+}
+function renderHeap(st){
+  $('heap').innerHTML = ['P','A','E','L'].map(id=>{
+    const def=OBJ[id], o=st.obj[id];
+    if(!o) return `<div class="card hidden" id="o-${id}"></div>`;
+    const grp = g => def.rows.filter(r=>r[0]===g).map(([gg,k,label])=>{
+      const [state,val]=o[k]||['raw','??']; const [lab,sub]=label.split('|');
+      return `<div class="row ${state==='raw'?'raw':''} ${st.hiRows.includes(id+'.'+k)?'hi':''}" id="r-${id}-${k}"><span class="k">${lab}${sub?`<small>${sub}</small>`:''}</span><span class="v">${val}</span></div>`;
+    }).join('');
+    const d = grp('d');
+    return `<div class="card ${def.shared?'shared':''} ${st.hiObj.includes(id)?'hi':''}" id="o-${id}">
+      <div class="ctitle">${def.title}</div>
+      <div class="grp h"><div class="gname">객체 헤더</div>${grp('h')}</div>
+      ${d?`<div class="grp d"><div class="gname">인스턴스 데이터</div>${d}</div>`:''}
+      <div class="pad">정렬 패딩</div>
+    </div>`;
+  }).join('');
+}
+function renderMeta(st){
+  $('meta').innerHTML = META.map(([id,name,sub])=>`<div class="mbox ${st.meta[id]?'':'hidden'} ${st.hiMeta.includes(id)?'hi':''}" id="m-${id}"><div class="mn">${name}</div><div class="ms">클래스 메타데이터 · ${sub}</div></div>`).join('');
+}
+function drawArrows(st){
+  const svg=$('arrows'), base=$('viz').getBoundingClientRect();
+  const R=el=>{const r=el.getBoundingClientRect();return {l:r.left-base.left,r:r.right-base.left,t:r.top-base.top,b:r.bottom-base.top,cx:r.left-base.left+r.width/2,cy:r.top-base.top+r.height/2};};
+  let paths='';
+  const mk = `<defs>
+    <marker id="aw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#e6e6e6"/></marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#7d7d7d"/></marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path d="M0,0L10,5L0,10z" fill="#886dcf"/></marker></defs>`;
+  // class word -> metaspace
+  for(const id of Object.keys(st.obj)){
+    const o=st.obj[id]; if(!o.klass || o.klass[0]!=='val') continue;
+    if(!((st.hiObj.includes(id) && id!=='E') || st.hiRows.includes(id+'.klass') || st.hiMeta.includes(id))) continue;
+    const a=$(`r-${id}-klass`), m=$(`m-${id}`); if(!a||!m) continue;
+    const A=R(a), M=R(m);
+    const hot = st.hiRows.includes(id+'.klass');
+    const x1=A.r, y1=A.cy, x2=M.l-2, y2=M.cy, mx=x1+(x2-x1)*0.55;
+    paths += `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="${hot?'#886dcf':'#7d7d7d'}" stroke-width="${hot?2.5:1.6}" stroke-dasharray="${hot?'':'5 4'}" marker-end="url(#${hot?'ap':'ag'})"/>`;
+  }
+  // stack refs -> objects
+  for(const [n,id] of Object.entries(st.stack)){
+    if(!id) continue; const s=$(`s-${n}`), o=$(`o-${id}`); if(!s||!o) continue;
+    const S=R(s), O=R(o), hot=st.hiStack.includes(n);
+    const x1=S.cx, y1=S.b, x2=O.cx, y2=O.t-2, my=y1+(y2-y1)*0.5;
+    paths += `<path d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}" fill="none" stroke="${hot?'#886dcf':'#e6e6e6'}" stroke-width="${hot?2.5:1.6}" marker-end="url(#${hot?'ap':'aw'})"/>`;
+  }
+  // elementData -> shared array
+  const L=st.obj.L;
+  if(L && L.elementData && L.elementData[0]==='ref'){
+    const a=$('r-L-elementData'), e=$('o-E');
+    if(a&&e){ const A=R(a), E=R(e), hot=st.hiRows.includes('L.elementData');
+      const x1=A.l, y1=A.cy, x2=E.r+2, y2=Math.min(E.b-14, y1);
+      paths += `<path d="M${x1},${y1} C${x1-28},${y1} ${x2+28},${y2} ${x2},${y2}" fill="none" stroke="${hot?'#886dcf':'#e6e6e6'}" stroke-width="${hot?2.5:1.6}" marker-end="url(#${hot?'ap':'aw'})"/>`; }
+  }
+  svg.setAttribute('viewBox',`0 0 ${base.width} ${base.height}`);
+  svg.setAttribute('width','100%'); svg.setAttribute('height','100%'); svg.setAttribute('preserveAspectRatio','none');
+  svg.innerHTML = mk + paths;
+}
+function setTab(t){
+  document.querySelectorAll('.tab').forEach(b=>{const on=b.dataset.tab===t; b.classList.toggle('active',on); b.setAttribute('aria-selected',on);});
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.dataset.pane===t));
+}
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+
+let cur=0;
+function render(){
+  const step=STEPS[cur], st=SNAP[cur];
+  $('count').textContent=`${cur+1} / ${STEPS.length}`;
+  $('prev').disabled=cur===0; $('next').disabled=cur===STEPS.length-1;
+  document.querySelectorAll('.ln').forEach(el=>el.classList.toggle('cur', el.dataset.f===step.tab && step.l.includes(+el.dataset.l)));
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('live', b.dataset.tab===step.tab));
+  setTab(step.tab);
+  renderStack(st); renderHeap(st); renderMeta(st);
+  requestAnimationFrame(()=>drawArrows(st));
+}
+$('prev').onclick=()=>{if(cur>0){cur--;render();}};
+$('next').onclick=()=>{if(cur<STEPS.length-1){cur++;render();}};
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();$('next').click();}
+  if(e.key==='ArrowLeft'){e.preventDefault();$('prev').click();}
+});
+window.addEventListener('resize',()=>drawArrows(SNAP[cur]));
+document.fonts && document.fonts.ready.then(()=>drawArrows(SNAP[cur]));
+render();
+</script>
+
+<script id="embed-fit-js">
+(function(){
+  const W=1680, wrap=document.querySelector('.wrap');
+  const box=document.createElement('div'); box.id='fitbox'; box.style.cssText='position:relative;overflow:hidden;width:100%';
+  wrap.parentNode.insertBefore(box,wrap); box.appendChild(wrap);
+  function fit(){
+    const s=Math.min(1, document.documentElement.clientWidth/W);
+    wrap.style.transform='scale('+s+')';
+    box.style.height=Math.ceil(wrap.offsetHeight*s)+'px';
+    window.__fitScale=s;
+  }
+  window.addEventListener('resize',fit);
+  new ResizeObserver(fit).observe(wrap);
+  fit();
+})();
+</script>
+</body>
+</html>

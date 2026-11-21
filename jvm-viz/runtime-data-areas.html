@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>런타임 데이터 영역 — 예제 코드로 따라가기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000; --panel:#0b0b0b; --line:#262626; --node:#1b1b1b; --border:#4c4c4c;
+  --sub:#9a9a9a; --faint:#5e5e5e;
+  --acc:#886dcf; --acc-fill:#20163a; --acc-text:#c5b9eb;
+  --amb:#d9a441; --amb-fill:#2a2110;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:#fff;font-family:'Noto Sans KR',sans-serif}
+body{background-image:linear-gradient(#111 1px,transparent 1px),linear-gradient(90deg,#111 1px,transparent 1px);background-size:48px 48px}
+.wrap{max-width:1680px;margin:0 auto;padding:18px 20px 24px}
+.top{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px}
+.top button{font:inherit;font-size:14px;color:#fff;background:var(--node);border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer}
+.top button:hover{border-color:#8a8a8a}
+.top button:disabled{opacity:.3;cursor:default}
+.count{font-family:var(--mono);font-size:13px;color:var(--sub);min-width:62px;text-align:center}
+.main{display:grid;grid-template-columns:minmax(480px,36fr) 64fr;gap:16px;align-items:start}
+@media (max-width:0px){ .main{grid-template-columns:1fr} }
+
+.mac{background:#1e1e1e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden;position:sticky;top:12px}
+.macbar{height:36px;background:#2b2b2b;display:flex;align-items:center}
+.dots{display:flex;gap:8px;padding-left:14px}
+.dots i{width:12px;height:12px;border-radius:50%;display:block}
+.tabrow{display:flex;align-items:flex-end;height:100%;margin-left:18px;gap:2px}
+.tab{font:inherit;font-size:13px;color:#9a9a9a;background:transparent;border:none;border-radius:8px 8px 0 0;height:30px;padding:0 14px;cursor:pointer;margin-top:6px;display:flex;align-items:center;gap:7px}
+.tab:hover{color:#d4d4d4}
+.tab.active{background:#1e1e1e;color:#fff}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--acc);display:none}
+.tab.live .dot{display:block}
+.pane{display:none}
+.pane.active{display:block}
+.code{position:relative;padding:12px 0 14px;font-family:var(--mono);font-size:13px;line-height:22px;overflow:auto;max-height:calc(100vh - 110px)}
+.ln{display:flex;position:relative;white-space:pre}
+.ln .no{width:44px;flex:none;text-align:right;padding-right:14px;color:#5a5a5a}
+.ln .tx{color:#d4d4d4;padding-right:18px}
+.ln.cur{background:rgba(136,109,207,.16)}
+.ln.cur::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc)}
+.ln.cur .no{color:#fff}
+.ln.wait{background:rgba(217,164,65,.10)}
+.ln.wait::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--amb)}
+.ln.mh .tx{color:#fff;font-weight:500}
+.t-kw{color:#569cd6}.t-ty{color:#4ec9b0}.t-fn{color:#dcdcaa}.t-nu{color:#b5cea8}.t-st{color:#ce9178}.t-cm{color:#6a9955}.t-op{color:#c586c0}
+
+.viz{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pnl{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 14px;transition:border-color .25s}
+.pnl.full{grid-column:1 / -1}
+.ph{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;gap:8px;align-items:center}
+.ph span{font-size:11.5px;color:var(--sub);font-weight:400}
+.ph .st{margin-left:auto}
+#arrows{position:absolute;inset:0;pointer-events:none;overflow:visible;z-index:5}
+.hidden{visibility:hidden}
+.hiB{border:2px solid var(--acc)!important;background:var(--acc-fill)!important}
+
+/* method area */
+.ma{display:flex;gap:12px;align-items:stretch}
+.cls{border:1px solid var(--border);border-radius:9px;background:#121212;padding:9px 10px;transition:all .25s}
+.cls .cn{font-family:var(--mono);font-size:12.5px;font-weight:700}
+.cls .cs{font-size:11px;color:var(--sub);margin-top:3px;font-family:var(--mono)}
+.cls.dim{opacity:.45;border-style:dashed}
+.cpbox{margin-top:9px;border:1px solid #2e2e2e;border-radius:7px;overflow:hidden}
+.cph{font-size:10.5px;color:var(--sub);padding:4px 8px;background:#171717;border-bottom:1px solid #2e2e2e}
+.cpg{display:grid;grid-template-columns:1fr 1fr}
+.cp{white-space:nowrap;display:flex;align-items:center;gap:7px;padding:5px 8px;font-family:var(--mono);font-size:11px;border-top:1px solid #1f1f1f;color:#6e6e6e;transition:all .25s}
+.cp:nth-child(-n+2){border-top:none}
+.cp:nth-child(odd){border-right:1px solid #1f1f1f}
+.cp b{font-weight:500;color:#777;min-width:26px}
+.cp .k{font-size:9.5px;color:#555;min-width:40px}
+.cp.r .k{color:var(--sub)}
+.cp em{font-style:normal;margin-left:auto;font-size:9.5px;font-family:'Noto Sans KR',sans-serif;color:#555;white-space:nowrap}
+.cp.r{color:#e6e6e6}
+.cp.r b{color:var(--acc-text)}
+.cp.r em{color:var(--sub)}
+.cp.hi{outline:2px solid var(--acc);outline-offset:-2px;background:var(--acc-fill)}
+
+/* heap */
+.heap{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.obj{border:1px solid #3a3a3a;border-radius:9px;background:#101010;padding:8px 10px;transition:all .25s;min-height:62px}
+.obj .on{font-family:var(--mono);font-size:12px;font-weight:700}
+.obj .os{font-size:10.5px;color:var(--sub);margin-top:2px}
+.obj .fr{display:flex;justify-content:space-between;margin-top:6px;padding:4px 7px;border-radius:5px;background:#171717;font-family:var(--mono);font-size:11px;transition:all .25s}
+.obj .fr.hi{outline:2px solid var(--acc);outline-offset:-2px;background:var(--acc-fill)}
+
+/* threads */
+.thr{min-height:330px}
+.thr.ghost{border-style:dashed;border-color:#333}
+.chip{font-size:11px;font-weight:500;padding:2px 9px;border-radius:999px;border:1px solid var(--border);color:var(--sub)}
+.chip.run{border-color:var(--acc);color:var(--acc-text);background:var(--acc-fill)}
+.chip.wait{border-color:var(--amb);color:var(--amb);background:var(--amb-fill)}
+.tb{display:grid;grid-template-columns:84px 1fr 150px;gap:10px;align-items:stretch}
+.box{border:1px solid #333;border-radius:8px;background:#0e0e0e;padding:8px;transition:all .25s}
+.bl{font-size:10.5px;color:var(--sub);margin-bottom:7px;padding-left:6px}
+.pcv{font-family:var(--mono);font-size:22px;font-weight:700;text-align:center;margin-top:18px}
+.pcv.u{font-size:11px;color:var(--faint);font-weight:400;margin-top:24px}
+.stk{display:flex;flex-direction:column;gap:6px}
+.frm{border:1px solid var(--border);border-radius:7px;background:#151515;padding:6px 8px;transition:all .25s}
+.frm.cf{border-color:#bdbdbd}
+.frm.dim{opacity:.4;border-style:dashed}
+.fh{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:12px;font-weight:700}
+.fh i{font-style:normal;font-weight:400;font-size:10.5px;color:var(--sub);border:1px solid #3a3a3a;border-radius:4px;padding:0 5px}
+.lv{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:3px 6px;margin-top:4px;border-radius:4px;background:#0f0f0f;transition:all .25s}
+.lv span:first-child{color:#bdbdbd}
+.lv .e{color:var(--faint)}
+.lv.hi{outline:2px solid var(--acc);outline-offset:-2px;background:var(--acc-fill)}
+.empty{font-size:11px;color:var(--faint);text-align:center;padding:18px 0}
+.nf{word-break:break-all;border:1px dashed var(--acc);border-radius:7px;background:var(--acc-fill);padding:6px 8px;font-family:var(--mono);font-size:11px;color:var(--acc-text)}
+.ghostmsg{display:flex;align-items:center;justify-content:center;height:260px;color:var(--faint);font-size:12px;font-family:var(--mono)}
+
+/* engine strip */
+.eng{display:flex;align-items:center;gap:10px}
+.eb{flex:1;text-align:center;border:1px solid #333;border-radius:8px;background:#0e0e0e;padding:8px;font-size:12px;color:var(--sub);transition:all .25s}
+.eb.on{border-color:var(--acc);background:var(--acc-fill);color:#fff}
+.ea{color:var(--faint);font-size:14px}
+.ea.on{color:var(--acc)}
+</style>
+
+<style id="embed-fit">
+html,body{overflow-x:hidden}
+.wrap{width:1680px!important;max-width:none!important;transform-origin:0 0}
+.code{max-height:none!important}
+.mac{position:static!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <button id="prev" type="button" aria-label="이전 단계">◀ 이전</button>
+    <div class="count" id="count"></div>
+    <button id="next" type="button" aria-label="다음 단계">다음 ▶</button>
+  </div>
+  <div class="main">
+    <div class="mac">
+      <div class="macbar">
+        <div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+        <div class="tabrow" role="tablist">
+          <button class="tab" data-tab="j" type="button">RuntimeAreas.java <span class="dot"></span></button>
+          <button class="tab" data-tab="b" type="button">바이트코드 <span class="dot"></span></button>
+        </div>
+      </div>
+      <div class="pane" data-pane="j"><div class="code" id="c-j"></div></div>
+      <div class="pane" data-pane="b"><div class="code" id="c-b"></div></div>
+    </div>
+
+    <div class="viz" id="viz">
+      <svg id="arrows" aria-hidden="true"></svg>
+      <div class="pnl full">
+        <div class="ph">메서드 영역<span>모든 스레드 공유</span></div>
+        <div class="ma" id="ma"></div>
+      </div>
+      <div class="pnl full" id="heapP">
+        <div class="ph">힙<span>모든 스레드 공유</span></div>
+        <div class="heap" id="heap"></div>
+      </div>
+      <div class="pnl thr" id="t1"></div>
+      <div class="pnl thr" id="t2"></div>
+      <div class="pnl full">
+        <div class="eng" id="eng"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- code ---------- */
+const K=t=>`<span class="t-kw">${t}</span>`, T=t=>`<span class="t-ty">${t}</span>`, F=t=>`<span class="t-fn">${t}</span>`, N=t=>`<span class="t-nu">${t}</span>`, S=t=>`<span class="t-st">${t}</span>`, C=t=>`<span class="t-cm">${t}</span>`, O=t=>`<span class="t-op">${t}</span>`;
+const JAVA = [
+  `${K('class')} ${T('Counter')} {`,
+  `    ${K('int')} value;`,
+  `}`,
+  ``,
+  `${K('public class')} ${T('RuntimeAreas')} {`,
+  `    ${K('public static void')} ${F('main')}(${T('String')}[] args) ${K('throws')} ${T('Exception')} {`,
+  `        ${T('Counter')} counter = ${K('new')} ${F('Counter')}();`,
+  `        ${T('Thread')} t2 = ${K('new')} ${F('Thread')}(() -> ${F('run')}(counter));`,
+  `        t2.${F('start')}();`,
+  `        t2.${F('join')}();`,
+  `        ${F('calc')}(counter);`,
+  `    }`,
+  ``,
+  `    ${K('static int')} ${F('calc')}(${T('Counter')} c) {`,
+  `        ${K('return')} ${F('add')}(c, ${N('1')});`,
+  `    }`,
+  ``,
+  `    ${K('static int')} ${F('add')}(${T('Counter')} c, ${K('int')} n) {`,
+  `        ${T('String')} label = ${S('"합계"')};`,
+  `        c.value += n;`,
+  `        ${K('return')} c.value;`,
+  `    }`,
+  ``,
+  `    ${K('static void')} ${F('run')}(${T('Counter')} c) {`,
+  `        ${F('hash')}(c);`,
+  `    }`,
+  ``,
+  `    ${K('static int')} ${F('hash')}(${T('Counter')} c) {`,
+  `        ${T('String')} label = ${S('"합계"')};`,
+  `        ${K('return')} ${T('System')}.${F('identityHashCode')}(c);`,
+  `    }`,
+  `}`];
+const BC = {
+  main:['main(String[])',[[0,'new','#7','Counter'],[3,'dup'],[4,'invokespecial','#9','Counter.&lt;init&gt;'],[7,'astore_1'],[8,'new','#10','Thread'],[11,'dup'],[12,'aload_1'],[13,'invokedynamic','#12','Runnable'],[18,'invokespecial','#16','Thread.&lt;init&gt;'],[21,'astore_2'],[22,'aload_2'],[23,'invokevirtual','#19','Thread.start'],[26,'aload_2'],[27,'invokevirtual','#22','Thread.join'],[30,'aload_1'],[31,'invokestatic','#25','calc'],[34,'pop'],[35,'return']]],
+  calc:['calc(Counter)',[[0,'aload_0'],[1,'iconst_1'],[2,'invokestatic','#31','add'],[5,'ireturn']]],
+  add:['add(Counter, int)',[[0,'ldc','#35','"합계"'],[2,'astore_2'],[3,'aload_0'],[4,'dup'],[5,'getfield','#37','Counter.value'],[8,'iload_1'],[9,'iadd'],[10,'putfield','#37','Counter.value'],[13,'aload_0'],[14,'getfield','#37','Counter.value'],[17,'ireturn']]],
+  run:['run(Counter)',[[0,'aload_0'],[1,'invokestatic','#41','hash'],[4,'pop'],[5,'return']]],
+  hash:['hash(Counter)',[[0,'ldc','#35','"합계"'],[2,'astore_1'],[3,'aload_0'],[4,'invokestatic','#44','System.identityHashCode'],[7,'ireturn']]],
+};
+const $=id=>document.getElementById(id);
+(function(){
+  $('c-j').innerHTML = JAVA.map((l,i)=>`<div class="ln" data-j="${i+1}"><span class="no">${i+1}</span><span class="tx">${l||' '}</span></div>`).join('');
+  let h='', n=0;
+  for(const [m,[sig,ins]] of Object.entries(BC)){
+    if(n) h+=`<div class="ln"><span class="no"></span><span class="tx"> </span></div>`;
+    h+=`<div class="ln mh"><span class="no"></span><span class="tx">${sig}</span></div>`;
+    for(const [off,op,ref,cm] of ins){
+      const tx = `${String(off).padStart(4)}: ${O(op.padEnd(14))}${ref?N(ref.padEnd(5)):''}${cm?'  '+C('// '+cm):''}`;
+      h+=`<div class="ln" data-b="${m}:${off}"><span class="no"></span><span class="tx">${tx}</span></div>`;
+    }
+    n++;
+  }
+  $('c-b').innerHTML=h;
+})();
+
+/* ---------- model ---------- */
+const CP=[[7,'Class','Counter'],[19,'Method','Thread.start'],[25,'Method','calc'],[31,'Method','add'],[35,'String','"합계"'],[37,'Field','Counter.value'],[41,'Method','hash'],[44,'Method','System.identityHashCode']];
+const HEAP=[['args','String[0]','main의 args'],['counter','Counter',''],['str','String','리터럴'],['thread','Thread','t2']];
+const REFNAME={args:'String[]',thread:'Thread',counter:'Counter',str:'"합계"'};
+const fr=(id,m,loc)=>({id,m,pc:0,loc});
+
+const ST={
+  cls:{C:false},
+  cp:Object.fromEntries(CP.map(c=>[c[0],'s'])),
+  heap:{args:true,thread:false,counter:false,str:false}, val:'0',
+  t1:{st:'run',frames:[fr('main','main()',[['args','r','args'],['counter','e'],['t2','e']])],nat:null},
+  t2:{st:'none',frames:[],nat:null},
+  jni:false,
+};
+const get=(t,id)=>ST[t].frames.find(f=>f.id===id);
+const setL=(t,id,k,kind,v)=>{const l=get(t,id).loc.find(x=>x[0]===k); l[1]=kind; l[2]=v;};
+
+const STEPS=[
+ {tab:'j', l:[6], b:['main:0'], hi:{cls:['RA'],heap:['args'],frame:['t1.main'],local:['t1.main.args']}},
+ {tab:'b', l:[7], b:['main:0'], fn:()=>{ST.cp[7]='r'; ST.cls.C=true; ST.heap.counter=true;}, hi:{cp:[7],cls:['C'],heap:['counter']}},
+ {tab:'j', l:[7], b:['main:3','main:4','main:7'], fn:()=>{get('t1','main').pc=7; setL('t1','main','counter','r','counter');}, hi:{local:['t1.main.counter']}},
+ {tab:'j', l:[8], b:['main:8','main:11','main:12','main:13','main:18','main:21'], fn:()=>{get('t1','main').pc=21; ST.heap.thread=true; setL('t1','main','t2','r','thread');}, hi:{heap:['thread'],local:['t1.main.t2']}},
+ {tab:'j', l:[9], b:['main:22','main:23'], fn:()=>{get('t1','main').pc=23; ST.cp[19]='r'; ST.t2.st='run'; ST.t2.frames=[{id:'base',m:'Thread.run() …',dim:true,loc:[]}];}, hi:{cp:[19],thr:['t2']}},
+ {tab:'j', l:[25], w:[10], b:['run:0'], bw:['main:27'], fn:()=>{get('t1','main').pc=27; ST.t1.st='wait'; ST.t2.frames.push(fr('run','run()',[['c','r','counter']]));}, hi:{frame:['t2.run'],local:['t2.run.c'],heap:['counter']}},
+ {tab:'j', l:[25], w:[10], b:['run:1'], bw:['main:27'], fn:()=>{get('t2','run').pc=1; ST.cp[41]='r'; ST.t2.frames.push(fr('hash','hash()',[['c','r','counter'],['label','e']]));}, hi:{cp:[41],frame:['t2.hash']}},
+ {tab:'b', l:[29], w:[10], b:['hash:0','hash:2'], bw:['main:27'], fn:()=>{get('t2','hash').pc=2; ST.cp[35]='r'; ST.heap.str=true; setL('t2','hash','label','r','str');}, hi:{cp:[35],heap:['str'],local:['t2.hash.label']}},
+ {tab:'j', l:[30], w:[10], b:['hash:3','hash:4'], bw:['main:27'], fn:()=>{get('t2','hash').pc=4; ST.cp[44]='r'; ST.t2.nat='System.identityHashCode()'; ST.jni=true;}, hi:{cp:[44],nat:['t2'],pc:['t2']}},
+ {tab:'j', l:[10], b:['main:27'], fn:()=>{ST.t2.frames=[]; ST.t2.nat=null; ST.t2.st='dead'; ST.jni=false; ST.t1.st='run';}, hi:{thr:['t2']}},
+ {tab:'j', l:[11], b:['main:30','main:31'], fn:()=>{get('t1','main').pc=31; ST.cp[25]='r'; ST.t1.frames.push(fr('calc','calc()',[['c','r','counter']]));}, hi:{cp:[25],frame:['t1.calc']}},
+ {tab:'j', l:[15], b:['calc:0','calc:1','calc:2'], fn:()=>{get('t1','calc').pc=2; ST.cp[31]='r'; ST.t1.frames.push(fr('add','add()',[['c','r','counter'],['n','v','1'],['label','e']]));}, hi:{cp:[31],frame:['t1.add']}},
+ {tab:'j', l:[19], b:['add:0','add:2'], fn:()=>{get('t1','add').pc=2; setL('t1','add','label','r','str');}, hi:{cp:[35],heap:['str'],local:['t1.add.label']}},
+ {tab:'b', l:[20], b:['add:3','add:4','add:5','add:8','add:9','add:10'], fn:()=>{get('t1','add').pc=10; ST.cp[37]='r'; ST.val='1';}, hi:{cp:[37],val:true,local:['t1.add.c']}},
+ {tab:'j', l:[21,15], b:['add:17','calc:5','main:34'], fn:()=>{ST.t1.frames=ST.t1.frames.filter(f=>f.id==='main'); get('t1','main').pc=34;}, hi:{frame:['t1.main']}},
+ {tab:'j', l:[12], b:['main:35'], fn:()=>{ST.t1.frames=[]; ST.t1.st='dead';}, hi:{thr:['t1']}},
+];
+const SNAP=STEPS.map(s=>{ if(s.fn) s.fn(); return JSON.parse(JSON.stringify(ST)); });
+
+/* ---------- render ---------- */
+let H={};
+const has=(k,v)=>(H[k]||[]).includes(v);
+function renderMA(st){
+  const cps=CP.map(([n,kind,name])=>{const r=st.cp[n]==='r';
+    return `<div class="cp ${r?'r':''} ${has('cp',n)?'hi':''}"><b>#${n}</b><span class="k">${kind}</span>${name}<em>${r?'해석됨':'기호'}</em></div>`;}).join('');
+  $('ma').innerHTML=`
+   <div class="cls ${has('cls','RA')?'hiB':''}" style="flex:3">
+     <div class="cn">RuntimeAreas</div>
+     <div class="cs">메서드 main · calc · add · run · hash + 바이트코드</div>
+     <div class="cpbox"><div class="cph">런타임 상수 풀</div><div class="cpg">${cps}</div></div>
+   </div>
+   <div class="cls ${st.cls.C?'':'hidden'} ${has('cls','C')?'hiB':''}" style="flex:.8">
+     <div class="cn">Counter</div>
+     <div class="cs">필드 int value</div>
+   </div>
+   <div class="cls dim" style="flex:.9">
+     <div class="cn">Object · String · Thread · System</div>
+     <div class="cs">JDK 클래스</div>
+   </div>`;
+}
+function renderHeap(st){
+  $('heap').innerHTML=HEAP.map(([id,name,sub])=>{
+    const extra = id==='counter' ? `<div class="fr ${H.val?'hi':''}"><span>value</span><span>${st.val}</span></div>`
+               : id==='str' ? `<div class="fr"><span>값</span><span>"합계"</span></div>` : '';
+    return `<div class="obj ${st.heap[id]?'':'hidden'} ${has('heap',id)?'hiB':''}" id="H-${id}"><div class="on">${name}</div>${sub?`<div class="os">${sub}</div>`:''}${extra}</div>`;
+  }).join('');
+}
+function renderThread(t,st){
+  const th=st[t], el=$(t), name=t==='t1'?'스레드 1':'스레드 2', sub=t==='t1'?'main':'';
+  const chip = th.st==='run'?'<span class="chip run st">실행 중</span>':th.st==='wait'?'<span class="chip wait st">대기 · join()</span>':th.st==='dead'?'<span class="chip st">종료</span>':'';
+  el.classList.toggle('ghost', th.st==='none'||th.st==='dead');
+  el.classList.toggle('hiB', has('thr',t));
+  const head=`<div class="ph">${name}<span>${sub}</span><span style="margin-left:auto">스레드 전용</span>${chip.replace(' st','')}</div>`;
+  if(th.st==='none'){ el.innerHTML=head+`<div class="ghostmsg">start() 전 — 아직 없음</div>`; return; }
+  if(th.st==='dead'){ el.innerHTML=head+`<div class="ghostmsg">PC · 스택 해제됨</div>`; return; }
+  const fs=th.frames, tp=fs[fs.length-1];
+  const pc = th.nat ? `<div class="pcv u">undefined</div>` : (tp&&!tp.dim ? `<div class="pcv">${tp.pc}</div>` : `<div class="pcv u">—</div>`);
+  const frames = fs.slice().reverse().map((f,i)=>{
+    const key=`${t}.${f.id}`;
+    const loc=f.loc.map(([k,kind,v])=>{
+      const val = kind==='r'?`→ ${REFNAME[v]}`:kind==='v'?v:'<span class="e">—</span>';
+      return `<div class="lv ${has('local',key+'.'+k)?'hi':''}" id="L-${t}-${f.id}-${k}"><span>${k}</span><span>${val}</span></div>`;}).join('');
+    return `<div id="F-${t}-${f.id}" class="frm ${f.dim?'dim':''} ${i===0&&!f.dim?'cf':''} ${has('frame',key)?'hiB':''}"><div class="fh">${f.m}${f.dim?'':`<i>pc ${f.pc}</i>`}</div>${loc}</div>`;
+  }).join('') || `<div class="empty">비어 있음</div>`;
+  el.innerHTML=head+`<div class="tb">
+    <div class="box ${has('pc',t)?'hiB':''}"><div class="bl">PC</div>${pc}</div>
+    <div class="box"><div class="bl">가상 머신 스택</div><div class="stk">${frames}</div></div>
+    <div class="box ${has('nat',t)?'hiB':''}"><div class="bl">네이티브 메서드 스택</div>${th.nat?`<div class="nf">${th.nat}</div>`:'<div class="empty">비어 있음</div>'}</div>
+  </div>`;
+}
+function renderEng(st){
+  const on=st.jni?'on':'';
+  $('eng').innerHTML=`<div class="eb ${on}">실행 엔진</div><div class="ea ${on}">→</div><div class="eb ${on}">JNI</div><div class="ea ${on}">→</div><div class="eb ${on}">네이티브 라이브러리 (C/C++)</div>`;
+}
+function drawArrows(st){
+  const svg=$('arrows'), base=$('viz').getBoundingClientRect();
+  const R=el=>{const r=el.getBoundingClientRect();return {l:r.left-base.left,r:r.right-base.left,t:r.top-base.top,b:r.bottom-base.top,cx:r.left-base.left+r.width/2};};
+  let p='';
+  for(const key of (H.local||[])){
+    const [t,f,k]=key.split('.'); const fr=st[t].frames.find(x=>x.id===f); if(!fr) continue;
+    const l=fr.loc.find(x=>x[0]===k); if(!l||l[1]!=='r') continue;
+    const a=$(`L-${t}-${f}-${k}`), o=$(`H-${l[2]}`); if(!a||!o) continue;
+    const A=R(a), B=R(o), Fm=R($(`F-${t}-${f}`)), HP=R($('heapP')), TP=R($(t));
+    const fx=Fm.l-4, gy=(HP.b+TP.t)/2, x2=B.cx, y2=B.b+3;
+    p+=`<path d="M${A.l},${A.t+A.b>>1} H${fx} V${gy} H${x2} V${y2}" fill="none" stroke="#886dcf" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ap)"/>`;
+  }
+  svg.setAttribute('viewBox',`0 0 ${base.width} ${base.height}`);
+  svg.setAttribute('width','100%'); svg.setAttribute('height','100%'); svg.setAttribute('preserveAspectRatio','none');
+  svg.innerHTML=`<defs><marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#886dcf"/></marker></defs>`+p;
+}
+function setTab(t){
+  document.querySelectorAll('.tab').forEach(b=>{const on=b.dataset.tab===t; b.classList.toggle('active',on); b.setAttribute('aria-selected',on);});
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.dataset.pane===t));
+  scrollCur();
+}
+function scrollCur(){
+  const pane=document.querySelector('.pane.active .code'); if(!pane) return;
+  const ln=pane.querySelector('.ln.cur')||pane.querySelector('.ln.wait'); if(!ln) return;
+  pane.scrollTop = Math.max(0, ln.offsetTop - pane.clientHeight/2 + 11);
+}
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+
+let cur=0;
+function render(){
+  const step=STEPS[cur], st=SNAP[cur]; H=step.hi||{};
+  $('count').textContent=`${cur+1} / ${STEPS.length}`;
+  $('prev').disabled=cur===0; $('next').disabled=cur===STEPS.length-1;
+  document.querySelectorAll('[data-j]').forEach(el=>{const n=+el.dataset.j; el.classList.toggle('cur',step.l.includes(n)); el.classList.toggle('wait',(step.w||[]).includes(n));});
+  document.querySelectorAll('[data-b]').forEach(el=>{const k=el.dataset.b; el.classList.toggle('cur',step.b.includes(k)); el.classList.toggle('wait',(step.bw||[]).includes(k));});
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('live',b.dataset.tab===step.tab));
+  renderMA(st); renderHeap(st); renderThread('t1',st); renderThread('t2',st); renderEng(st);
+  setTab(step.tab);
+  requestAnimationFrame(()=>drawArrows(st));
+}
+$('prev').onclick=()=>{if(cur>0){cur--;render();}};
+$('next').onclick=()=>{if(cur<STEPS.length-1){cur++;render();}};
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();$('next').click();}
+  if(e.key==='ArrowLeft'){e.preventDefault();$('prev').click();}
+});
+window.addEventListener('resize',()=>drawArrows(SNAP[cur]));
+document.fonts && document.fonts.ready.then(()=>drawArrows(SNAP[cur]));
+render();
+</script>
+
+<script id="embed-fit-js">
+(function(){
+  const W=1680, wrap=document.querySelector('.wrap');
+  const box=document.createElement('div'); box.id='fitbox'; box.style.cssText='position:relative;overflow:hidden;width:100%';
+  wrap.parentNode.insertBefore(box,wrap); box.appendChild(wrap);
+  function fit(){
+    const s=Math.min(1, document.documentElement.clientWidth/W);
+    wrap.style.transform='scale('+s+')';
+    box.style.height=Math.ceil(wrap.offsetHeight*s)+'px';
+    window.__fitScale=s;
+  }
+  window.addEventListener('resize',fit);
+  new ResizeObserver(fit).observe(wrap);
+  fit();
+})();
+</script>
+</body>
+</html>
