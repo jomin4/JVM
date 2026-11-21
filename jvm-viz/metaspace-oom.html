@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>메서드 영역과 런타임 상수 풀 오버플로</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--panel:#0b0b0b;--line:#262626;--node:#1b1b1b;--border:#4c4c4c;--sub:#9a9a9a;--faint:#5e5e5e;
+--acc:#886dcf;--acc-fill:#20163a;--acc-text:#c5b9eb;--amb:#d9a441;--amb-fill:#2a2110;--mono:'JetBrains Mono',ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:#fff;font-family:'Noto Sans KR',sans-serif;overflow-x:hidden}
+body{background-image:linear-gradient(#111 1px,transparent 1px),linear-gradient(90deg,#111 1px,transparent 1px);background-size:48px 48px}
+#fitbox{position:relative;overflow:hidden;width:100%}
+.wrap{width:1680px;padding:18px 20px 24px;transform-origin:0 0}
+.top{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px}
+.top button{font:inherit;font-size:14px;color:#fff;background:var(--node);border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer}
+.top button:hover{border-color:#8a8a8a}.top button:disabled{opacity:.3;cursor:default}
+.count{font-family:var(--mono);font-size:13px;color:var(--sub);min-width:62px;text-align:center}
+.main{display:grid;grid-template-columns:600px 1fr;gap:16px;align-items:start}
+.mac{background:#1e1e1e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.macbar{height:36px;background:#2b2b2b;display:flex;align-items:center}
+.dots{display:flex;gap:8px;padding-left:14px}.dots i{width:12px;height:12px;border-radius:50%;display:block}
+.tabrow{display:flex;align-items:flex-end;height:100%;margin-left:18px;gap:2px}
+.tab{font:inherit;font-size:13px;color:#9a9a9a;background:transparent;border:none;border-radius:8px 8px 0 0;height:30px;padding:0 14px;cursor:pointer;margin-top:6px;display:flex;align-items:center;gap:7px}
+.tab:hover{color:#d4d4d4}.tab.active{background:#1e1e1e;color:#fff}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--acc);display:none}.tab.live .dot{display:block}
+.pane{display:none}.pane.active{display:block}
+.code{padding:12px 0 14px;font-family:var(--mono);font-size:13px;line-height:22px}
+.ln{display:flex;position:relative;white-space:pre}
+.ln .no{width:44px;flex:none;text-align:right;padding-right:14px;color:#5a5a5a}
+.ln .tx{color:#d4d4d4;padding-right:18px}
+.ln.cur{background:rgba(136,109,207,.16)}
+.ln.cur::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc)}
+.ln.cur .no{color:#fff}
+.k{color:#569cd6}.ty{color:#4ec9b0}.fn{color:#dcdcaa}.nu{color:#b5cea8}.st{color:#ce9178}.cm{color:#6a9955}
+.right{display:flex;flex-direction:column;gap:14px}
+.pnl{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.term{background:#0e0e0e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.term .macbar{height:30px;background:#1f1f1f}
+.term .ttl{font-size:12px;color:var(--sub);margin-left:16px}
+.term pre{margin:0;padding:12px 16px 14px;font-family:var(--mono);font-size:13px;line-height:21px;min-height:76px;white-space:pre-wrap}
+.term .c{color:var(--sub)}.term .o{color:#d4d4d4}.term .e{color:var(--amb)}
+svg text{font-family:'Noto Sans KR',sans-serif}
+svg .t{fill:#fff;font-size:16px}svg .ts{fill:#9a9a9a;font-size:13px}svg .b{font-weight:700}svg .m{font-family:'JetBrains Mono',monospace}
+svg .bx{fill:#1b1b1b;stroke:#4c4c4c;stroke-width:1}
+svg .gr{fill:#2a2a2a;stroke:#4c4c4c;stroke-width:1}
+svg .hi{fill:#20163a;stroke:#886dcf;stroke-width:2}
+svg .am{fill:#2a2110;stroke:#d9a441;stroke-width:2}
+svg .ct{fill:none;stroke:#3a3a3a;stroke-width:1.2;stroke-dasharray:6 5}
+svg .ctl{fill:none;stroke:#3a3a3a;stroke-width:1.2}
+svg .ctam{fill:none;stroke:#d9a441;stroke-width:2;stroke-dasharray:6 5}
+svg .gh{fill:none;stroke:#5e5e5e;stroke-width:1;stroke-dasharray:4 4}
+svg .ar{fill:none;stroke:#6e6e6e;stroke-width:1.6}
+svg .arh{fill:none;stroke:#886dcf;stroke-width:2.6}
+svg .ara{fill:none;stroke:#d9a441;stroke-width:2.6}
+svg .fade{transition:opacity .3s}
+</style>
+</head>
+<body>
+<div id="fitbox"><div class="wrap">
+  <div class="top">
+    <button id="prev" type="button" aria-label="이전 단계">◀ 이전</button>
+    <div class="count" id="count"></div>
+    <button id="next" type="button" aria-label="다음 단계">다음 ▶</button>
+  </div>
+  <div class="main">
+    <div class="mac">
+      <div class="macbar"><div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="tabrow" id="tabs"></div></div>
+      <div id="panes"></div>
+    </div>
+    <div class="right">
+      <div class="pnl"><svg viewBox="0 0 1060 460" width="100%" role="img" aria-label="메서드 영역과 런타임 상수 풀 오버플로"><defs>
+<marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#6e6e6e"/></marker>
+<marker id="mp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#886dcf"/></marker>
+<marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#d9a441"/></marker>
+</defs><rect id="metaC" class="ct" x="20" y="30" width="500" height="400" rx="12"/><text class="ts" x="42" y="60" text-anchor="start" dominant-baseline="central">메타스페이스 (메서드 영역) · 최대 10MB</text><rect id="heapC" class="ct" x="540" y="30" width="500" height="400" rx="12"/><text class="ts" x="562" y="60" text-anchor="start" dominant-baseline="central">힙 · 최대 6MB</text><rect class="ctl" x="562" y="84" width="456" height="326" rx="8"/><text class="ts" x="580" y="106" text-anchor="start" dominant-baseline="central">문자열 상수 풀</text><g id="mg4"></g><g id="hg4"></g><text id="mnote" class="ts" x="270" y="412" text-anchor="middle" dominant-baseline="central"></text><text id="hnote" class="ts" x="790" y="450" text-anchor="middle" dominant-baseline="central"></text></svg></div>
+      <div class="term"><div class="macbar"><div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><span class="ttl">터미널</span></div><pre id="term"></pre></div>
+    </div>
+  </div>
+</div></div>
+<script>
+const FILES=[{"name": "MetaspaceOOM.java", "code": "import java.lang.reflect.Proxy;\nimport java.util.*;\n\npublic class MetaspaceOOM {\n    public static void main(String[] args) {\n        List<Object> keep = new ArrayList<>();\n        int n = 0;\n        while (true) {\n            ClassLoader loader =\n                    new ClassLoader(MetaspaceOOM.class.getClassLoader()) {};\n            keep.add(Proxy.newProxyInstance(loader,\n                    new Class<?>[]{Task.class}, (p, m, a) -> null));\n            if (++n % 1000 == 0)\n                System.out.println(\"생성한 클래스: \" + n);\n        }\n    }\n}"}, {"name": "Task.java", "code": "public interface Task {\n    void run();\n}"}, {"name": "InternOOM.java", "code": "import java.util.*;\n\npublic class InternOOM {\n    public static void main(String[] args) {\n        Set<String> set = new HashSet<>();\n        long i = 0;\n        while (true) {\n            set.add(String.valueOf(i++).intern());\n        }\n    }\n}"}];
+const STEPS=[{"tab": 0, "l": [9, 10], "fa": 0.08, "fb": 0, "bad": "", "mn": "", "hn": "", "term": [["c", "java -XX:MaxMetaspaceSize=10m MetaspaceOOM"]]}, {"tab": 0, "l": [11, 12], "fa": 0.55, "fb": 0, "bad": "", "mn": "로더마다 새 프록시 클래스", "hn": "", "term": [["c", "java -XX:MaxMetaspaceSize=10m MetaspaceOOM"]]}, {"tab": 0, "l": [11, 12], "fa": 1, "fb": 0, "bad": "A", "mn": "클래스 1,000개 남짓", "hn": "", "term": [["c", "java -XX:MaxMetaspaceSize=10m MetaspaceOOM"], ["o", "생성한 클래스: 1000"], ["e", "Exception in thread \"main\" java.lang.OutOfMemoryError: Metaspace"]]}, {"tab": 2, "l": [8], "fa": 0, "fb": 1, "bad": "B", "mn": "", "hn": "", "term": [["c", "java -Xmx6m InternOOM"], ["e", "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space"]]}];
+window.TERM_MAX=9;
+
+const MB=[],HB=[];(function(){const NS='http://www.w3.org/2000/svg';const mg=document.getElementById('mg4'),hg=document.getElementById('hg4');
+for(let r=0;r<6;r++)for(let c=0;c<4;c++){const g=document.createElementNS(NS,'g');const e=document.createElementNS(NS,'rect');
+const x=42+c*116,y=84+r*52;e.setAttribute('x',x);e.setAttribute('y',y);e.setAttribute('width',104);e.setAttribute('height',40);e.setAttribute('rx',5);g.appendChild(e);
+const t=document.createElementNS(NS,'text');t.setAttribute('class','ts m');t.setAttribute('x',x+52);t.setAttribute('y',y+20);t.setAttribute('text-anchor','middle');t.setAttribute('dominant-baseline','central');t.textContent='$Proxy';g.appendChild(t);
+g.setAttribute('class','fade');mg.appendChild(g);MB.push([g,e]);}
+for(let r=0;r<11;r++)for(let c=0;c<18;c++){const e=document.createElementNS(NS,'rect');e.setAttribute('x',580+c*24);e.setAttribute('y',124+r*24);e.setAttribute('width',18);e.setAttribute('height',18);e.setAttribute('rx',3);hg.appendChild(e);HB.push(e);}})();
+
+function apply(st,i){
+
+const ka=Math.round(MB.length*st.fa),kb=Math.round(HB.length*st.fb);
+MB.forEach(([g,e],j)=>{g.style.opacity=j<ka?1:0;e.setAttribute('class',st.bad==='A'?'am':(j===ka-1?'hi':'gr'));});
+HB.forEach((e,j)=>{e.style.opacity=j<kb?1:0;e.setAttribute('class',st.bad==='B'?'am':'gr');});
+setCls('metaC',st.bad==='A'?'ctam':'ct');setCls('heapC',st.bad==='B'?'ctam':'ct');
+txt('mnote',st.mn);txt('hnote',st.hn);
+
+}
+
+const $=id=>document.getElementById(id);
+const KW=new Set('public private protected static final class interface void int long boolean new return while true false try catch throw throws import extends implements this null for if else'.split(' '));
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function hl(line){
+  const re=/(\/\/.*$)|("(?:[^"\\]|\\.)*")|(\b\d[\d_]*[Lf]?\b)|([A-Za-z_$][\w$]*)|([^A-Za-z_$"\/\d]+|\/)/g;let out='',m;
+  while((m=re.exec(line))){
+    if(m[1])out+=`<span class="cm">${esc(m[1])}</span>`;
+    else if(m[2])out+=`<span class="st">${esc(m[2])}</span>`;
+    else if(m[3])out+=`<span class="nu">${m[3]}</span>`;
+    else if(m[4]){const w=m[4],rest=line.slice(re.lastIndex);
+      if(KW.has(w))out+=`<span class="k">${w}</span>`;
+      else if(/^\s*\(/.test(rest))out+=`<span class="fn">${w}</span>`;
+      else if(/^[A-Z]/.test(w))out+=`<span class="ty">${w}</span>`;
+      else out+=w;}
+    else out+=esc(m[5]);
+  }
+  return out;
+}
+(function build(){
+  const tr=$('tabs'),pn=$('panes');
+  FILES.forEach((f,i)=>{
+    const b=document.createElement('button');b.className='tab';b.type='button';b.dataset.i=i;b.innerHTML=f.name+' <span class="dot"></span>';
+    b.onclick=()=>showTab(i);tr.appendChild(b);
+    const p=document.createElement('div');p.className='pane';p.dataset.i=i;
+    p.innerHTML='<div class="code">'+f.code.split('\n').map((l,j)=>`<div class="ln" data-l="${j+1}"><span class="no">${j+1}</span><span class="tx">${hl(l)||' '}</span></div>`).join('')+'</div>';
+    pn.appendChild(p);
+  });
+})();
+function showTab(i){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',+b.dataset.i===i));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',+p.dataset.i===i));
+}
+function setCls(id,c){const e=$(id);if(e)e.setAttribute('class',c);}
+function show(id,v){const e=$(id);if(e)e.style.opacity=v?1:0;}
+function arr(id,mode){const e=$(id);if(!e)return;const m={g:['ar','mg'],p:['arh','mp'],a:['ara','ma']}[mode||'g'];e.setAttribute('class',m[0]+' fade');e.setAttribute('marker-end','url(#'+m[1]+')');}
+function txt(id,s){const e=$(id);if(e)e.textContent=s;}
+let cur=0;
+function render(){
+  const st=STEPS[cur];
+  $('count').textContent=(cur+1)+' / '+STEPS.length;
+  $('prev').disabled=cur===0;$('next').disabled=cur===STEPS.length-1;
+  document.querySelectorAll('.pane').forEach(p=>{const on=+p.dataset.i===st.tab;
+    p.querySelectorAll('.ln').forEach(l=>l.classList.toggle('cur',on&&st.l.includes(+l.dataset.l)));});
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('live',+b.dataset.i===st.tab));
+  showTab(st.tab);
+  const T=st.term||[];
+  if($('term'))$('term').innerHTML=T.slice(-(window.TERM_MAX||9)).map(([c,t])=>`<span class="${c}">${c==='c'?'$ ':''}${esc(t)}</span>`).join('\n');
+  apply(st,cur);
+}
+$('prev').onclick=()=>{if(cur>0){cur--;render();}};
+$('next').onclick=()=>{if(cur<STEPS.length-1){cur++;render();}};
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();$('next').click();}
+  if(e.key==='ArrowLeft'){e.preventDefault();$('prev').click();}
+});
+(function fit(){
+  const W=1680,wrap=document.querySelector('.wrap'),box=$('fitbox');
+  function f(){const s=Math.min(1,document.documentElement.clientWidth/W);wrap.style.transform='scale('+s+')';box.style.height=Math.ceil(wrap.offsetHeight*s)+'px';}
+  window.addEventListener('resize',f);new ResizeObserver(f).observe(wrap);f();
+})();
+render();
+
+</script>
+</body>
+</html>

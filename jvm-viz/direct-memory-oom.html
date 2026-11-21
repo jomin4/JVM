@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>네이티브 다이렉트 메모리 오버플로</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--panel:#0b0b0b;--line:#262626;--node:#1b1b1b;--border:#4c4c4c;--sub:#9a9a9a;--faint:#5e5e5e;
+--acc:#886dcf;--acc-fill:#20163a;--acc-text:#c5b9eb;--amb:#d9a441;--amb-fill:#2a2110;--mono:'JetBrains Mono',ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:#fff;font-family:'Noto Sans KR',sans-serif;overflow-x:hidden}
+body{background-image:linear-gradient(#111 1px,transparent 1px),linear-gradient(90deg,#111 1px,transparent 1px);background-size:48px 48px}
+#fitbox{position:relative;overflow:hidden;width:100%}
+.wrap{width:1680px;padding:18px 20px 24px;transform-origin:0 0}
+.top{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px}
+.top button{font:inherit;font-size:14px;color:#fff;background:var(--node);border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer}
+.top button:hover{border-color:#8a8a8a}.top button:disabled{opacity:.3;cursor:default}
+.count{font-family:var(--mono);font-size:13px;color:var(--sub);min-width:62px;text-align:center}
+.main{display:grid;grid-template-columns:600px 1fr;gap:16px;align-items:start}
+.mac{background:#1e1e1e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.macbar{height:36px;background:#2b2b2b;display:flex;align-items:center}
+.dots{display:flex;gap:8px;padding-left:14px}.dots i{width:12px;height:12px;border-radius:50%;display:block}
+.tabrow{display:flex;align-items:flex-end;height:100%;margin-left:18px;gap:2px}
+.tab{font:inherit;font-size:13px;color:#9a9a9a;background:transparent;border:none;border-radius:8px 8px 0 0;height:30px;padding:0 14px;cursor:pointer;margin-top:6px;display:flex;align-items:center;gap:7px}
+.tab:hover{color:#d4d4d4}.tab.active{background:#1e1e1e;color:#fff}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--acc);display:none}.tab.live .dot{display:block}
+.pane{display:none}.pane.active{display:block}
+.code{padding:12px 0 14px;font-family:var(--mono);font-size:13px;line-height:22px}
+.ln{display:flex;position:relative;white-space:pre}
+.ln .no{width:44px;flex:none;text-align:right;padding-right:14px;color:#5a5a5a}
+.ln .tx{color:#d4d4d4;padding-right:18px}
+.ln.cur{background:rgba(136,109,207,.16)}
+.ln.cur::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc)}
+.ln.cur .no{color:#fff}
+.k{color:#569cd6}.ty{color:#4ec9b0}.fn{color:#dcdcaa}.nu{color:#b5cea8}.st{color:#ce9178}.cm{color:#6a9955}
+.right{display:flex;flex-direction:column;gap:14px}
+.pnl{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.term{background:#0e0e0e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.term .macbar{height:30px;background:#1f1f1f}
+.term .ttl{font-size:12px;color:var(--sub);margin-left:16px}
+.term pre{margin:0;padding:12px 16px 14px;font-family:var(--mono);font-size:13px;line-height:21px;min-height:76px;white-space:pre-wrap}
+.term .c{color:var(--sub)}.term .o{color:#d4d4d4}.term .e{color:var(--amb)}
+svg text{font-family:'Noto Sans KR',sans-serif}
+svg .t{fill:#fff;font-size:16px}svg .ts{fill:#9a9a9a;font-size:13px}svg .b{font-weight:700}svg .m{font-family:'JetBrains Mono',monospace}
+svg .bx{fill:#1b1b1b;stroke:#4c4c4c;stroke-width:1}
+svg .gr{fill:#2a2a2a;stroke:#4c4c4c;stroke-width:1}
+svg .hi{fill:#20163a;stroke:#886dcf;stroke-width:2}
+svg .am{fill:#2a2110;stroke:#d9a441;stroke-width:2}
+svg .ct{fill:none;stroke:#3a3a3a;stroke-width:1.2;stroke-dasharray:6 5}
+svg .ctl{fill:none;stroke:#3a3a3a;stroke-width:1.2}
+svg .ctam{fill:none;stroke:#d9a441;stroke-width:2;stroke-dasharray:6 5}
+svg .gh{fill:none;stroke:#5e5e5e;stroke-width:1;stroke-dasharray:4 4}
+svg .ar{fill:none;stroke:#6e6e6e;stroke-width:1.6}
+svg .arh{fill:none;stroke:#886dcf;stroke-width:2.6}
+svg .ara{fill:none;stroke:#d9a441;stroke-width:2.6}
+svg .fade{transition:opacity .3s}
+</style>
+</head>
+<body>
+<div id="fitbox"><div class="wrap">
+  <div class="top">
+    <button id="prev" type="button" aria-label="이전 단계">◀ 이전</button>
+    <div class="count" id="count"></div>
+    <button id="next" type="button" aria-label="다음 단계">다음 ▶</button>
+  </div>
+  <div class="main">
+    <div class="mac">
+      <div class="macbar"><div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="tabrow" id="tabs"></div></div>
+      <div id="panes"></div>
+    </div>
+    <div class="right">
+      <div class="pnl"><svg viewBox="0 0 1060 430" width="100%" role="img" aria-label="네이티브 다이렉트 메모리 오버플로"><defs>
+<marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#6e6e6e"/></marker>
+<marker id="mp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#886dcf"/></marker>
+<marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#d9a441"/></marker>
+</defs><rect class="ctl" x="10" y="10" width="1040" height="410" rx="14"/><text class="ts" x="32" y="38" text-anchor="start" dominant-baseline="central">JVM 프로세스 메모리</text><rect class="ct" x="32" y="60" width="360" height="340" rx="12"/><text class="ts" x="52" y="86" text-anchor="start" dominant-baseline="central">힙 · 최대 20MB</text><text id="hnote" class="ts" x="372" y="86" text-anchor="end" dominant-baseline="central"></text><rect id="natC" class="ct" x="430" y="60" width="600" height="340" rx="12"/><text class="ts" x="452" y="86" text-anchor="start" dominant-baseline="central">다이렉트 메모리 (힙 밖) · 한도 10MB</text><text id="used" class="t b m" x="1010" y="86" text-anchor="end" dominant-baseline="central">0MB</text><text id="dbbl" class="ts" x="52" y="180" text-anchor="start" dominant-baseline="central">DirectByteBuffer 객체 (각 수십 바이트)</text><g id="hb5"></g><g id="nb5"></g></svg></div>
+      <div class="term"><div class="macbar"><div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><span class="ttl">터미널</span></div><pre id="term"></pre></div>
+    </div>
+  </div>
+</div></div>
+<script>
+const FILES=[{"name": "DirectOOM.java", "code": "import java.nio.ByteBuffer;\nimport java.util.*;\n\npublic class DirectOOM {\n    public static void main(String[] args) {\n        List<ByteBuffer> keep = new ArrayList<>();\n        int mb = 0;\n        while (true) {\n            keep.add(ByteBuffer.allocateDirect(1024 * 1024));\n            System.out.println(\"할당: \" + (++mb) + \"MB\");\n        }\n    }\n}"}];
+const STEPS=[{"tab": 0, "l": [9], "k": 1, "bad": 0, "hn": "", "term": [["c", "java -Xmx20m -XX:MaxDirectMemorySize=10m DirectOOM"], ["o", "할당: 1MB"]]}, {"tab": 0, "l": [9, 10], "k": 5, "bad": 0, "hn": "", "term": [["c", "java -Xmx20m -XX:MaxDirectMemorySize=10m DirectOOM"], ["o", "할당: 1MB"], ["o", "할당: 2MB"], ["o", "할당: 3MB"], ["o", "할당: 4MB"], ["o", "할당: 5MB"]]}, {"tab": 0, "l": [9, 10], "k": 10, "bad": 0, "hn": "", "term": [["c", "java -Xmx20m -XX:MaxDirectMemorySize=10m DirectOOM"], ["o", "할당: 1MB"], ["o", "할당: 2MB"], ["o", "할당: 3MB"], ["o", "할당: 4MB"], ["o", "할당: 5MB"], ["o", "할당: 6MB"], ["o", "할당: 7MB"], ["o", "할당: 8MB"], ["o", "할당: 9MB"], ["o", "할당: 10MB"]]}, {"tab": 0, "l": [9], "k": 10, "bad": 1, "hn": "거의 비어 있음", "term": [["c", "java -Xmx20m -XX:MaxDirectMemorySize=10m DirectOOM"], ["o", "할당: 1MB"], ["o", "할당: 2MB"], ["o", "할당: 3MB"], ["o", "할당: 4MB"], ["o", "할당: 5MB"], ["o", "할당: 6MB"], ["o", "할당: 7MB"], ["o", "할당: 8MB"], ["o", "할당: 9MB"], ["o", "할당: 10MB"], ["e", "Exception in thread \"main\" java.lang.OutOfMemoryError: Cannot reserve 1048576 bytes of direct buffer memory (allocated: 10485760, limit: 10485760)"]]}];
+window.TERM_MAX=13;
+
+const HC=[],NB=[];(function(){const NS='http://www.w3.org/2000/svg';const hg=document.getElementById('hb5'),ng=document.getElementById('nb5');
+function T(p,x,y,s,c){const t=document.createElementNS(NS,'text');t.setAttribute('class',c);t.setAttribute('x',x);t.setAttribute('y',y);t.setAttribute('text-anchor','middle');t.setAttribute('dominant-baseline','central');t.textContent=s;p.appendChild(t);}
+for(let i=0;i<10;i++){const g=document.createElementNS(NS,'g');g.setAttribute('class','fade');const e=document.createElementNS(NS,'rect');
+const cx=52+(i%5)*64,cy=104+Math.floor(i/5)*30;e.setAttribute('x',cx);e.setAttribute('y',cy);e.setAttribute('width',56);e.setAttribute('height',22);e.setAttribute('rx',4);g.appendChild(e);
+T(g,cx+28,cy+11,'#'+(i+1),'ts m');hg.appendChild(g);HC.push([g,e]);
+const g2=document.createElementNS(NS,'g');g2.setAttribute('class','fade');const b=document.createElementNS(NS,'rect');const x=452+(i%5)*112,y=106+Math.floor(i/5)*140;
+b.setAttribute('x',x);b.setAttribute('y',y);b.setAttribute('width',100);b.setAttribute('height',126);b.setAttribute('rx',6);g2.appendChild(b);
+T(g2,x+50,y+52,'1MB','t b m');T(g2,x+50,y+80,'#'+(i+1),'ts m');ng.appendChild(g2);NB.push([g2,b]);}})();
+
+function apply(st,i){
+
+HC.forEach(([g,e],j)=>{g.style.opacity=j<st.k?1:0;e.setAttribute('class',j===st.k-1&&!st.bad?'hi':'bx');});
+NB.forEach(([g,e],j)=>{g.style.opacity=j<st.k?1:0;e.setAttribute('class',st.bad?'am':(j===st.k-1?'hi':'gr'));});
+txt('used',st.k+'MB');txt('hnote',st.hn);setCls('natC',st.bad?'ctam':'ct');
+
+}
+
+const $=id=>document.getElementById(id);
+const KW=new Set('public private protected static final class interface void int long boolean new return while true false try catch throw throws import extends implements this null for if else'.split(' '));
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function hl(line){
+  const re=/(\/\/.*$)|("(?:[^"\\]|\\.)*")|(\b\d[\d_]*[Lf]?\b)|([A-Za-z_$][\w$]*)|([^A-Za-z_$"\/\d]+|\/)/g;let out='',m;
+  while((m=re.exec(line))){
+    if(m[1])out+=`<span class="cm">${esc(m[1])}</span>`;
+    else if(m[2])out+=`<span class="st">${esc(m[2])}</span>`;
+    else if(m[3])out+=`<span class="nu">${m[3]}</span>`;
+    else if(m[4]){const w=m[4],rest=line.slice(re.lastIndex);
+      if(KW.has(w))out+=`<span class="k">${w}</span>`;
+      else if(/^\s*\(/.test(rest))out+=`<span class="fn">${w}</span>`;
+      else if(/^[A-Z]/.test(w))out+=`<span class="ty">${w}</span>`;
+      else out+=w;}
+    else out+=esc(m[5]);
+  }
+  return out;
+}
+(function build(){
+  const tr=$('tabs'),pn=$('panes');
+  FILES.forEach((f,i)=>{
+    const b=document.createElement('button');b.className='tab';b.type='button';b.dataset.i=i;b.innerHTML=f.name+' <span class="dot"></span>';
+    b.onclick=()=>showTab(i);tr.appendChild(b);
+    const p=document.createElement('div');p.className='pane';p.dataset.i=i;
+    p.innerHTML='<div class="code">'+f.code.split('\n').map((l,j)=>`<div class="ln" data-l="${j+1}"><span class="no">${j+1}</span><span class="tx">${hl(l)||' '}</span></div>`).join('')+'</div>';
+    pn.appendChild(p);
+  });
+})();
+function showTab(i){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',+b.dataset.i===i));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',+p.dataset.i===i));
+}
+function setCls(id,c){const e=$(id);if(e)e.setAttribute('class',c);}
+function show(id,v){const e=$(id);if(e)e.style.opacity=v?1:0;}
+function arr(id,mode){const e=$(id);if(!e)return;const m={g:['ar','mg'],p:['arh','mp'],a:['ara','ma']}[mode||'g'];e.setAttribute('class',m[0]+' fade');e.setAttribute('marker-end','url(#'+m[1]+')');}
+function txt(id,s){const e=$(id);if(e)e.textContent=s;}
+let cur=0;
+function render(){
+  const st=STEPS[cur];
+  $('count').textContent=(cur+1)+' / '+STEPS.length;
+  $('prev').disabled=cur===0;$('next').disabled=cur===STEPS.length-1;
+  document.querySelectorAll('.pane').forEach(p=>{const on=+p.dataset.i===st.tab;
+    p.querySelectorAll('.ln').forEach(l=>l.classList.toggle('cur',on&&st.l.includes(+l.dataset.l)));});
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('live',+b.dataset.i===st.tab));
+  showTab(st.tab);
+  const T=st.term||[];
+  if($('term'))$('term').innerHTML=T.slice(-(window.TERM_MAX||9)).map(([c,t])=>`<span class="${c}">${c==='c'?'$ ':''}${esc(t)}</span>`).join('\n');
+  apply(st,cur);
+}
+$('prev').onclick=()=>{if(cur>0){cur--;render();}};
+$('next').onclick=()=>{if(cur<STEPS.length-1){cur++;render();}};
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();$('next').click();}
+  if(e.key==='ArrowLeft'){e.preventDefault();$('prev').click();}
+});
+(function fit(){
+  const W=1680,wrap=document.querySelector('.wrap'),box=$('fitbox');
+  function f(){const s=Math.min(1,document.documentElement.clientWidth/W);wrap.style.transform='scale('+s+')';box.style.height=Math.ceil(wrap.offsetHeight*s)+'px';}
+  window.addEventListener('resize',f);new ResizeObserver(f).observe(wrap);f();
+})();
+render();
+
+</script>
+</body>
+</html>

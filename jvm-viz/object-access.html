@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>객체에 접근하기 — 핸들과 다이렉트 포인터</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--panel:#0b0b0b;--line:#262626;--node:#1b1b1b;--border:#4c4c4c;--sub:#9a9a9a;--faint:#5e5e5e;
+--acc:#886dcf;--acc-fill:#20163a;--acc-text:#c5b9eb;--amb:#d9a441;--amb-fill:#2a2110;--mono:'JetBrains Mono',ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:#fff;font-family:'Noto Sans KR',sans-serif;overflow-x:hidden}
+body{background-image:linear-gradient(#111 1px,transparent 1px),linear-gradient(90deg,#111 1px,transparent 1px);background-size:48px 48px}
+#fitbox{position:relative;overflow:hidden;width:100%}
+.wrap{width:1680px;padding:18px 20px 24px;transform-origin:0 0}
+.top{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px}
+.top button{font:inherit;font-size:14px;color:#fff;background:var(--node);border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer}
+.top button:hover{border-color:#8a8a8a}.top button:disabled{opacity:.3;cursor:default}
+.count{font-family:var(--mono);font-size:13px;color:var(--sub);min-width:62px;text-align:center}
+.main{display:grid;grid-template-columns:600px 1fr;gap:16px;align-items:start}
+.mac{background:#1e1e1e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.macbar{height:36px;background:#2b2b2b;display:flex;align-items:center}
+.dots{display:flex;gap:8px;padding-left:14px}.dots i{width:12px;height:12px;border-radius:50%;display:block}
+.tabrow{display:flex;align-items:flex-end;height:100%;margin-left:18px;gap:2px}
+.tab{font:inherit;font-size:13px;color:#9a9a9a;background:transparent;border:none;border-radius:8px 8px 0 0;height:30px;padding:0 14px;cursor:pointer;margin-top:6px;display:flex;align-items:center;gap:7px}
+.tab:hover{color:#d4d4d4}.tab.active{background:#1e1e1e;color:#fff}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--acc);display:none}.tab.live .dot{display:block}
+.pane{display:none}.pane.active{display:block}
+.code{padding:12px 0 14px;font-family:var(--mono);font-size:13px;line-height:22px}
+.ln{display:flex;position:relative;white-space:pre}
+.ln .no{width:44px;flex:none;text-align:right;padding-right:14px;color:#5a5a5a}
+.ln .tx{color:#d4d4d4;padding-right:18px}
+.ln.cur{background:rgba(136,109,207,.16)}
+.ln.cur::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc)}
+.ln.cur .no{color:#fff}
+.k{color:#569cd6}.ty{color:#4ec9b0}.fn{color:#dcdcaa}.nu{color:#b5cea8}.st{color:#ce9178}.cm{color:#6a9955}
+.right{display:flex;flex-direction:column;gap:14px}
+.pnl{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.term{background:#0e0e0e;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden}
+.term .macbar{height:30px;background:#1f1f1f}
+.term .ttl{font-size:12px;color:var(--sub);margin-left:16px}
+.term pre{margin:0;padding:12px 16px 14px;font-family:var(--mono);font-size:13px;line-height:21px;min-height:76px;white-space:pre-wrap}
+.term .c{color:var(--sub)}.term .o{color:#d4d4d4}.term .e{color:var(--amb)}
+svg text{font-family:'Noto Sans KR',sans-serif}
+svg .t{fill:#fff;font-size:16px}svg .ts{fill:#9a9a9a;font-size:13px}svg .b{font-weight:700}svg .m{font-family:'JetBrains Mono',monospace}
+svg .bx{fill:#1b1b1b;stroke:#4c4c4c;stroke-width:1}
+svg .gr{fill:#2a2a2a;stroke:#4c4c4c;stroke-width:1}
+svg .hi{fill:#20163a;stroke:#886dcf;stroke-width:2}
+svg .am{fill:#2a2110;stroke:#d9a441;stroke-width:2}
+svg .ct{fill:none;stroke:#3a3a3a;stroke-width:1.2;stroke-dasharray:6 5}
+svg .ctl{fill:none;stroke:#3a3a3a;stroke-width:1.2}
+svg .ctam{fill:none;stroke:#d9a441;stroke-width:2;stroke-dasharray:6 5}
+svg .gh{fill:none;stroke:#5e5e5e;stroke-width:1;stroke-dasharray:4 4}
+svg .ar{fill:none;stroke:#6e6e6e;stroke-width:1.6}
+svg .arh{fill:none;stroke:#886dcf;stroke-width:2.6}
+svg .ara{fill:none;stroke:#d9a441;stroke-width:2.6}
+svg .fade{transition:opacity .3s}
+</style>
+</head>
+<body>
+<div id="fitbox"><div class="wrap">
+  <div class="top">
+    <button id="prev" type="button" aria-label="이전 단계">◀ 이전</button>
+    <div class="count" id="count"></div>
+    <button id="next" type="button" aria-label="다음 단계">다음 ▶</button>
+  </div>
+  <div class="main">
+    <div class="mac">
+      <div class="macbar"><div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="tabrow" id="tabs"></div></div>
+      <div id="panes"></div>
+    </div>
+    <div class="right">
+      <div class="pnl"><svg viewBox="0 0 1060 570" width="100%" role="img" aria-label="객체에 접근하기 — 핸들과 다이렉트 포인터"><defs>
+<marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#6e6e6e"/></marker>
+<marker id="mp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#886dcf"/></marker>
+<marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#d9a441"/></marker>
+</defs><g transform="translate(0,0)"><rect class="bx" x="0" y="60" width="100" height="170" rx="8"/><text class="ts" x="50" y="84" text-anchor="middle" dominant-baseline="central">스택</text><rect id="hsp" class="bx" x="12" y="104" width="76" height="40" rx="5"/><text class="t m" x="50" y="124" text-anchor="middle" dominant-baseline="central">p</text><rect id="hsp2" class="bx" x="12" y="160" width="76" height="40" rx="5"/><text class="t m" x="50" y="180" text-anchor="middle" dominant-baseline="central">p2</text><rect class="ct" x="125" y="50" width="375" height="300" rx="12"/><text class="ts" x="488" y="74" text-anchor="end" dominant-baseline="central">힙</text><rect class="ct" x="125" y="380" width="375" height="125" rx="12"/><text class="ts" x="145" y="488" text-anchor="start" dominant-baseline="central">메서드 영역</text><rect id="htype" class="bx" x="270" y="430" width="215" height="50" rx="6"/><text class="t" x="377" y="455" text-anchor="middle" dominant-baseline="central">Point 타입 데이터</text><text class="t b" x="250" y="24" text-anchor="middle" dominant-baseline="central">핸들 방식</text><text class="ts" x="145" y="90" text-anchor="start" dominant-baseline="central">핸들 풀</text><rect id="hr1" class="bx" x="145" y="104" width="150" height="42" rx="4"/><text class="ts" x="220" y="125" text-anchor="middle" dominant-baseline="central">인스턴스 주소</text><rect id="hr2" class="bx" x="145" y="146" width="150" height="42" rx="4"/><text class="ts" x="220" y="167" text-anchor="middle" dominant-baseline="central">타입 주소</text><g id="hghost" class="fade" style="opacity:0"><rect class="gh" x="320" y="104" width="165" height="84" rx="6"/><text class="ts" x="402" y="146" text-anchor="middle" dominant-baseline="central">이전 위치</text></g><g id="hobjA" class="fade"><rect id="hoA" class="bx" x="320" y="104" width="165" height="84" rx="6"/><text class="t b" x="402" y="134" text-anchor="middle" dominant-baseline="central">인스턴스 데이터</text><text class="ts m" x="402" y="162" text-anchor="middle" dominant-baseline="central">x = 1, y = 2</text></g><g id="hobjB" class="fade" style="opacity:0"><rect id="hoB" class="bx" x="320" y="240" width="165" height="84" rx="6"/><text class="t b" x="402" y="270" text-anchor="middle" dominant-baseline="central">인스턴스 데이터</text><text class="ts m" x="402" y="298" text-anchor="middle" dominant-baseline="central">x = 1, y = 2</text></g><path id="ha1" class="ar fade" d="M88,124 L142,121" marker-end="url(#mg)"/><path id="ha2" class="ar fade" d="M88,180 L142,141" marker-end="url(#mg)"/><path id="hiA" class="ar fade" d="M295,125 L317,125" marker-end="url(#mg)"/><path id="hiB" class="ar fade" d="M295,125 H307 V282 H317" marker-end="url(#mg)" style="opacity:0"/><path id="ht" class="ar fade" d="M220,188 V455 H267" marker-end="url(#mg)"/><text id="hchip" class="t" x="250" y="548" text-anchor="middle" dominant-baseline="central"></text></g><g transform="translate(540,0)"><rect class="bx" x="0" y="60" width="100" height="170" rx="8"/><text class="ts" x="50" y="84" text-anchor="middle" dominant-baseline="central">스택</text><rect id="dsp" class="bx" x="12" y="104" width="76" height="40" rx="5"/><text class="t m" x="50" y="124" text-anchor="middle" dominant-baseline="central">p</text><rect id="dsp2" class="bx" x="12" y="160" width="76" height="40" rx="5"/><text class="t m" x="50" y="180" text-anchor="middle" dominant-baseline="central">p2</text><rect class="ct" x="125" y="50" width="375" height="300" rx="12"/><text class="ts" x="488" y="74" text-anchor="end" dominant-baseline="central">힙</text><rect class="ct" x="125" y="380" width="375" height="125" rx="12"/><text class="ts" x="145" y="488" text-anchor="start" dominant-baseline="central">메서드 영역</text><rect id="dtype" class="bx" x="270" y="430" width="215" height="50" rx="6"/><text class="t" x="377" y="455" text-anchor="middle" dominant-baseline="central">Point 타입 데이터</text><text class="t b" x="250" y="24" text-anchor="middle" dominant-baseline="central">다이렉트 포인터 방식</text><g id="dghost" class="fade" style="opacity:0"><rect class="gh" x="150" y="100" width="165" height="108" rx="6"/><text class="ts" x="232" y="154" text-anchor="middle" dominant-baseline="central">이전 위치</text></g><g id="dobjA" class="fade"><rect id="dhA" class="bx" x="150" y="100" width="165" height="36" rx="4"/><text class="ts" x="232" y="118" text-anchor="middle" dominant-baseline="central">클래스 워드</text><rect id="dxA" class="bx" x="150" y="136" width="165" height="36" rx="4"/><text class="ts m" x="232" y="154" text-anchor="middle" dominant-baseline="central">x = 1</text><rect id="dyA" class="bx" x="150" y="172" width="165" height="36" rx="4"/><text class="ts m" x="232" y="190" text-anchor="middle" dominant-baseline="central">y = 2</text></g><g id="dobjB" class="fade" style="opacity:0"><rect id="dhB" class="bx" x="320" y="230" width="165" height="36" rx="4"/><text class="ts" x="402" y="248" text-anchor="middle" dominant-baseline="central">클래스 워드</text><rect id="dxB" class="bx" x="320" y="266" width="165" height="36" rx="4"/><text class="ts m" x="402" y="284" text-anchor="middle" dominant-baseline="central">x = 1</text><rect id="dyB" class="bx" x="320" y="302" width="165" height="36" rx="4"/><text class="ts m" x="402" y="320" text-anchor="middle" dominant-baseline="central">y = 2</text></g><path id="da1" class="ar fade" d="M88,124 L147,118" marker-end="url(#mg)"/><path id="da2" class="ar fade" d="M88,180 L147,190" marker-end="url(#mg)"/><path id="db1" class="ar fade" d="M88,124 H118 V284 H317" marker-end="url(#mg)" style="opacity:0"/><path id="db2" class="ar fade" d="M88,180 H106 V320 H317" marker-end="url(#mg)" style="opacity:0"/><path id="dtA" class="ar fade" d="M315,118 H512 V455 H488" marker-end="url(#mg)"/><path id="dtB" class="ar fade" d="M485,248 H512 V455 H488" marker-end="url(#mg)" style="opacity:0"/><text id="dchip" class="t" x="250" y="548" text-anchor="middle" dominant-baseline="central"></text></g></svg></div>
+      
+    </div>
+  </div>
+</div></div>
+<script>
+const FILES=[{"name": "Main.java", "code": "class Point {\n    int x = 1, y = 2;\n}\n\npublic class Main {\n    public static void main(String[] args) {\n        Point p  = new Point();\n        Point p2 = p;\n        int v = p.x;\n        Class<?> c = p.getClass();\n        // GC가 객체를 다른 위치로 옮김\n    }\n}"}];
+const STEPS=[{"tab": 0, "l": [7, 8], "hi": [], "chg": [], "box": [], "moved": 0, "hc": "참조 → 핸들", "dc": "참조 → 객체"}, {"tab": 0, "l": [9], "hi": ["ha1", "hiA", "da1"], "chg": [], "box": ["hsp", "hr1", "hoA", "dsp", "dxA"], "moved": 0, "hc": "p.x · 2번 이동", "dc": "p.x · 1번 이동"}, {"tab": 0, "l": [10], "hi": ["ha1", "ht", "da1", "dtA"], "chg": [], "box": ["hsp", "hr2", "htype", "dsp", "dhA", "dtype"], "moved": 0, "hc": "참조 → 핸들 → 타입", "dc": "참조 → 클래스 워드 → 타입"}, {"tab": 0, "l": [11], "hi": [], "chg": ["hiB", "db1", "db2"], "box": ["hr1", "dsp", "dsp2"], "moved": 1, "hc": "고칠 곳 1개 · 핸들", "dc": "고칠 곳 2개 · 모든 참조"}];
+window.TERM_MAX=9;
+
+function apply(st,i){
+
+const P=['ha1','ha2','hiA','hiB','ht','da1','da2','db1','db2','dtA','dtB'];
+const vis={hiA:!st.moved,hiB:!!st.moved,da1:!st.moved,da2:!st.moved,db1:!!st.moved,db2:!!st.moved,dtA:!st.moved,dtB:!!st.moved};
+P.forEach(id=>{show(id,(id in vis)?vis[id]:true);arr(id,st.chg.includes(id)?'a':st.hi.includes(id)?'p':'g');});
+['hobjA','dobjA'].forEach(id=>show(id,!st.moved));['hobjB','dobjB','hghost','dghost'].forEach(id=>show(id,st.moved));
+['hsp','hsp2','hr1','hr2','hoA','htype','dsp','dsp2','dhA','dxA','dtype'].forEach(id=>setCls(id,st.box.includes(id)?(st.moved?'am':'hi'):'bx'));
+txt('hchip',st.hc);txt('dchip',st.dc);
+
+}
+
+const $=id=>document.getElementById(id);
+const KW=new Set('public private protected static final class interface void int long boolean new return while true false try catch throw throws import extends implements this null for if else'.split(' '));
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function hl(line){
+  const re=/(\/\/.*$)|("(?:[^"\\]|\\.)*")|(\b\d[\d_]*[Lf]?\b)|([A-Za-z_$][\w$]*)|([^A-Za-z_$"\/\d]+|\/)/g;let out='',m;
+  while((m=re.exec(line))){
+    if(m[1])out+=`<span class="cm">${esc(m[1])}</span>`;
+    else if(m[2])out+=`<span class="st">${esc(m[2])}</span>`;
+    else if(m[3])out+=`<span class="nu">${m[3]}</span>`;
+    else if(m[4]){const w=m[4],rest=line.slice(re.lastIndex);
+      if(KW.has(w))out+=`<span class="k">${w}</span>`;
+      else if(/^\s*\(/.test(rest))out+=`<span class="fn">${w}</span>`;
+      else if(/^[A-Z]/.test(w))out+=`<span class="ty">${w}</span>`;
+      else out+=w;}
+    else out+=esc(m[5]);
+  }
+  return out;
+}
+(function build(){
+  const tr=$('tabs'),pn=$('panes');
+  FILES.forEach((f,i)=>{
+    const b=document.createElement('button');b.className='tab';b.type='button';b.dataset.i=i;b.innerHTML=f.name+' <span class="dot"></span>';
+    b.onclick=()=>showTab(i);tr.appendChild(b);
+    const p=document.createElement('div');p.className='pane';p.dataset.i=i;
+    p.innerHTML='<div class="code">'+f.code.split('\n').map((l,j)=>`<div class="ln" data-l="${j+1}"><span class="no">${j+1}</span><span class="tx">${hl(l)||' '}</span></div>`).join('')+'</div>';
+    pn.appendChild(p);
+  });
+})();
+function showTab(i){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',+b.dataset.i===i));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',+p.dataset.i===i));
+}
+function setCls(id,c){const e=$(id);if(e)e.setAttribute('class',c);}
+function show(id,v){const e=$(id);if(e)e.style.opacity=v?1:0;}
+function arr(id,mode){const e=$(id);if(!e)return;const m={g:['ar','mg'],p:['arh','mp'],a:['ara','ma']}[mode||'g'];e.setAttribute('class',m[0]+' fade');e.setAttribute('marker-end','url(#'+m[1]+')');}
+function txt(id,s){const e=$(id);if(e)e.textContent=s;}
+let cur=0;
+function render(){
+  const st=STEPS[cur];
+  $('count').textContent=(cur+1)+' / '+STEPS.length;
+  $('prev').disabled=cur===0;$('next').disabled=cur===STEPS.length-1;
+  document.querySelectorAll('.pane').forEach(p=>{const on=+p.dataset.i===st.tab;
+    p.querySelectorAll('.ln').forEach(l=>l.classList.toggle('cur',on&&st.l.includes(+l.dataset.l)));});
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('live',+b.dataset.i===st.tab));
+  showTab(st.tab);
+  const T=st.term||[];
+  if($('term'))$('term').innerHTML=T.slice(-(window.TERM_MAX||9)).map(([c,t])=>`<span class="${c}">${c==='c'?'$ ':''}${esc(t)}</span>`).join('\n');
+  apply(st,cur);
+}
+$('prev').onclick=()=>{if(cur>0){cur--;render();}};
+$('next').onclick=()=>{if(cur<STEPS.length-1){cur++;render();}};
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();$('next').click();}
+  if(e.key==='ArrowLeft'){e.preventDefault();$('prev').click();}
+});
+(function fit(){
+  const W=1680,wrap=document.querySelector('.wrap'),box=$('fitbox');
+  function f(){const s=Math.min(1,document.documentElement.clientWidth/W);wrap.style.transform='scale('+s+')';box.style.height=Math.ceil(wrap.offsetHeight*s)+'px';}
+  window.addEventListener('resize',f);new ResizeObserver(f).observe(wrap);f();
+})();
+render();
+
+</script>
+</body>
+</html>
